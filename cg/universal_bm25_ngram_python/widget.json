@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "id": "universal-bm25-ngram-python",
+    "name": "BM25 N-gram Search",
+    "version": "1.0.0",
+    "domain": "universal",
+    "tags": [
+      "bm25",
+      "ngram",
+      "search",
+      "rank",
+      "retrieval"
+    ]
+  },
+  "description": "Okapi BM25 ranker over in-memory records, with a second term space of character n-grams. Word BM25 scores exact tokens; n-gram BM25 recovers morphology and partial tokens. Field weights, optional stopwords, and additive scoring (query terms need not all match). No index files, no embeddings.",
+  "tech_stack": {
+    "language": "python",
+    "dependencies": []
+  },
+  "custom_notes": "Two term spaces per field: word tokens and character n-grams. Combined as word_bm25 + ngram_weight * ngram_bm25, then multiplied by field weight. Empty query returns no hits. Optional require_word_hit, min_score, and min_ratio drop weak/n-gram-only junk.",
+  "library_notes": {
+    "general": "Single responsibility - one widget does one thing. No global state. No project-specific code, hardcoded paths, credentials, or environment-specific values. Expose variation points as constructor parameters or function arguments - no hardcoded thresholds, colors, sizes, or behavior flags. URLs and endpoints belong in examples as demonstration data, not in src/ - if a widget needs a URL to operate, it must be a parameter the caller provides. All dependencies must be declared in widget.json tech_stack.dependencies. Widgets cannot depend on other widgets - they must be fully self-contained. If you need logic from another widget, copy it into src/ directly. Examples must run and exit cleanly with no user input, no network calls, and no external services or API keys - use fake/hardcoded data. The widget's own declared dependencies are fine and will be installed by the validator before the example runs. Do not modify library_notes - it is managed by Cartograph and will be restored on checkin.",
+    "language": "No project-specific names, identifiers, or terminology anywhere in src/, tests/, or examples/ - use generic names like 'user', 'item', 'value', 'example_org'. A test that references your project's real entity names is contaminated. Use pytest for all tests - no unittest. Type hints required on all public functions. No __init__.py in tests/. No if __name__ == '__main__' blocks in src/ files. Imports ordered: stdlib, third-party, local. ML domain: framework-free (numpy, scikit-learn, plain Python) and API-based inference (HTTP calls to OpenAI, Anthropic, HuggingFace Inference API) work everywhere. Heavy optional frameworks must be pre-installed - Cartograph will not auto-install them. Declare dependencies in widget.json normally; consumers must also have them installed to validate.",
+    "domain": "Use this domain when a widget spans multiple domains or has no clear home — not because it must be pure. A retry utility, a date formatter, a general-purpose HTTP client all belong here. Expose variation points as parameters. Don't force it into a domain just to avoid universal."
+  }
+}

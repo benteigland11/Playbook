@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "playbook"
+version = "0.1.0"
+description = "Procedures as JSON: search by intent, walk titles, one do at a time (CLI + MCP)."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Ben Teigland" }]
+dependencies = []
+keywords = ["playbook", "procedures", "mcp", "cli", "bm25"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Environment :: Console",
+]
+
+[project.urls]
+Homepage = "https://github.com/benteigland11/Playbook"
+Repository = "https://github.com/benteigland11/Playbook"
+
+[project.scripts]
+playbook = "playbook.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["playbook", "playbook.engine", "playbook.app_paths", "playbook.bm25_ngram"]
+
+[tool.setuptools.package-dir]
+"playbook.engine" = "cg/data_gofai_procedure_python/src"
+"playbook.app_paths" = "cg/infra_app_paths_python/src"
+"playbook.bm25_ngram" = "cg/universal_bm25_ngram_python/src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
