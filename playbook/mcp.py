@@ -73,7 +73,7 @@ def _tool_list() -> list[dict[str, Any]]:
     return [
         {
             "name": "playbook_create",
-            "description": "Create an empty procedure in the global store.",
+            "description": "Create a procedure in the global store. Pass steps to write the whole procedure in this one call — do not create empty and then add steps one at a time.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -81,6 +81,15 @@ def _tool_list() -> list[dict[str, Any]]:
                     "title": {"type": "string", "description": "Short name shown in search hits."},
                     "description": {"type": "string", "description": "When to pick this procedure. Can be multiple sentences / verbose."},
                     "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "steps": {
+                        "type": "array",
+                        "description": "The whole procedure, in order. Omit only if you truly have no steps yet.",
+                        "items": {
+                            "type": "object",
+                            "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
+                            "required": ["title", "do"],
+                        },
+                    },
                 },
                 "required": ["id", "title", "description", "tags"],
             },
@@ -101,7 +110,7 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_search",
-            "description": "Search procedures by intent. Hits are id, title, and description only. Weak matches are dropped (word hit required, score at least half the top hit). Empty query lists cards. At most `limit` hits.",
+            "description": "Search procedures by intent. Hits are id, title, and description only. Weak matches are dropped (word hit required, score at least half the top hit). If nothing matches strongly, the nearest few are returned with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards. At most `limit` hits.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -142,7 +151,7 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_step",
-            "description": "Add, edit, or remove one serial step (lookup by unique title). add: title+do, optional after. edit: title plus rename and/or do (id unchanged). remove: title only; remaining steps fuse in order.",
+            "description": "Add, edit, or remove serial steps (lookup by unique title). add: either one title+do, or a steps array to add several at once — prefer the array over repeated calls. Optional after inserts instead of appending. edit: title plus rename and/or do (id unchanged). remove: title only; remaining steps fuse in order.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -150,10 +159,19 @@ def _tool_list() -> list[dict[str, Any]]:
                     "op": {"type": "string", "enum": ["add", "edit", "remove"]},
                     "title": {"type": "string", "description": "New title on add; existing unique title on edit/remove."},
                     "do": {"type": "string"},
+                    "steps": {
+                        "type": "array",
+                        "description": "On add: several steps in order, instead of title+do.",
+                        "items": {
+                            "type": "object",
+                            "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
+                            "required": ["title", "do"],
+                        },
+                    },
                     "after": {"type": "string", "description": "On add: insert after this unique title. Omit to append."},
                     "rename": {"type": "string", "description": "On edit: new title."},
                 },
-                "required": ["id", "op", "title"],
+                "required": ["id", "op"],
             },
         },
     ]
@@ -189,13 +207,15 @@ def _tool_create(arguments: dict[str, Any]) -> dict[str, Any]:
     tags = _str_list(arguments.get("tags"), "tags")
     if not tags:
         raise ValueError("tags must be a non-empty array of strings")
+    steps = _step_list(arguments.get("steps"))
     path = ops.create_procedure(
         _require_str(arguments, "id"),
         _require_str(arguments, "title"),
         _require_str(arguments, "description"),
         tags,
+        steps=steps,
     )
-    return {"ok": True, "id": arguments["id"], "path": str(path)}
+    return {"ok": True, "id": arguments["id"], "path": str(path), "steps": len(steps or [])}
 
 
 def _tool_edit(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -244,15 +264,13 @@ def _tool_validate(arguments: dict[str, Any]) -> dict[str, Any]:
 def _tool_step(arguments: dict[str, Any]) -> dict[str, Any]:
     op = _require_str(arguments, "op")
     procedure_id = _require_str(arguments, "id")
-    title = _require_str(arguments, "title")
     if op == "add":
-        after = arguments.get("after")
-        return ops.add_step(
-            procedure_id,
-            title,
-            _require_str(arguments, "do"),
-            after=str(after) if after else None,
-        )
+        after = str(arguments["after"]) if arguments.get("after") else None
+        batch = _step_list(arguments.get("steps"))
+        if not batch:
+            batch = [{"title": _require_str(arguments, "title"), "do": _require_str(arguments, "do")}]
+        return ops.add_steps(procedure_id, batch, after=after)
+    title = _require_str(arguments, "title")
     if op == "edit":
         rename = arguments.get("rename")
         do = arguments.get("do")
@@ -265,6 +283,14 @@ def _tool_step(arguments: dict[str, Any]) -> dict[str, Any]:
     if op == "remove":
         return ops.remove_step(procedure_id, title)
     raise ValueError("op must be add, edit, or remove")
+
+
+def _step_list(value: Any) -> list[dict[str, Any]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("steps must be an array of {title, do} objects")
+    return value
 
 
 def _str_list(value: Any, field: str) -> list[str] | None:

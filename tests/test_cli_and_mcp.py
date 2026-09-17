@@ -228,3 +228,119 @@ def test_mcp_payloads_are_compact(tmp_path: Path, monkeypatch) -> None:
     assert "\n" not in text
     assert ", " not in text
     assert json.loads(text)["id"] == "item"
+
+
+def test_create_with_steps_in_one_call(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    steps = json.dumps(
+        [
+            {"title": "First", "do": "Do first."},
+            {"title": "Second", "do": "Do second."},
+            {"title": "Third", "do": "Do third."},
+        ]
+    )
+    assert main(
+        ["create", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha", "--steps", steps]
+    ) == 0
+    created = json.loads(capsys.readouterr().out)
+    assert created["steps"] == 3
+    document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+    assert [step["title"] for step in document["steps"]] == ["First", "Second", "Third"]
+    assert [step["do"] for step in document["steps"]] == ["Do first.", "Do second.", "Do third."]
+    assert len({step["id"] for step in document["steps"]}) == 3
+
+    more = json.dumps([{"title": "Fourth", "do": "Do fourth."}, {"title": "Fifth", "do": "Do fifth."}])
+    assert main(["add-steps", "item", "--steps", more]) == 0
+    appended = json.loads(capsys.readouterr().out)
+    assert appended["added"] == ["Fourth", "Fifth"]
+    assert appended["steps"] == ["First", "Second", "Third", "Fourth", "Fifth"]
+
+    inserted = json.dumps([{"title": "1a", "do": "Do 1a."}, {"title": "1b", "do": "Do 1b."}])
+    assert main(["add-steps", "item", "--steps", inserted, "--after", "First"]) == 0
+    document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+    assert [step["title"] for step in document["steps"]] == [
+        "First", "1a", "1b", "Second", "Third", "Fourth", "Fifth",
+    ]
+
+    assert main(["add-steps", "item", "--steps", '[{"title": "Broken"}]']) == 1
+    assert main(["add-steps", "item", "--steps", "not json"]) == 1
+
+
+def test_batch_add_is_atomic(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert main(["create", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha"]) == 0
+    assert main(["add-step", "item", "--title", "Kept", "--do", "Keep this."]) == 0
+    bad = json.dumps([{"title": "Good", "do": "Fine."}, {"title": "Bad", "do": ""}])
+    assert main(["add-steps", "item", "--steps", bad]) == 1
+    document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+    assert [step["title"] for step in document["steps"]] == ["Kept"]
+
+
+def test_mcp_create_and_step_accept_batches(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    def call(name: str, arguments: dict) -> dict:
+        response = handle_message(
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        )
+        assert response is not None
+        return response["result"]
+
+    created = call(
+        "playbook_create",
+        {
+            "id": "item",
+            "title": "Item",
+            "description": "when to pick",
+            "tags": ["alpha"],
+            "steps": [{"title": "First", "do": "Do first."}, {"title": "Second", "do": "Do second."}],
+        },
+    )
+    assert created["isError"] is False
+    assert json.loads(created["content"][0]["text"])["steps"] == 2
+
+    added = call(
+        "playbook_step",
+        {"id": "item", "op": "add", "steps": [{"title": "Third", "do": "Do third."}]},
+    )
+    assert added["isError"] is False
+    assert json.loads(added["content"][0]["text"])["added"] == ["Third"]
+
+    single = call("playbook_step", {"id": "item", "op": "add", "title": "Fourth", "do": "Do fourth."})
+    assert single["isError"] is False
+    document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+    assert [step["title"] for step in document["steps"]] == ["First", "Second", "Third", "Fourth"]
+    assert call("playbook_step", {"id": "item", "op": "remove"})["isError"] is True
+
+
+def test_search_falls_back_to_weak_matches(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert main(
+        [
+            "create", "rollback-deploy",
+            "--title", "Roll back a bad deploy",
+            "--description", "Use when a release is live and breaking users and you need the previous version back.",
+            "--tags", "deploy,rollback,release",
+        ]
+    ) == 0
+    capsys.readouterr()
+    assert main(["search", "roll back a deploy"]) == 0
+    strong = json.loads(capsys.readouterr().out)
+    assert strong["hits"][0]["id"] == "rollback-deploy"
+    assert "weak" not in strong
+
+    assert main(["search", "the deployment went sideways"]) == 0
+    weak = json.loads(capsys.readouterr().out)
+    assert weak["weak"] is True
+    assert weak["hits"][0]["id"] == "rollback-deploy"
+    assert "note" in weak
+    assert len(weak["hits"]) <= 3
+
+    # An unrelated query still surfaces a low-scoring candidate rather than an
+    # empty list. That is deliberate: the payload is labelled weak and the note
+    # tells the caller to check the description before trusting it.
+    assert main(["search", "unrelated bread baking question"]) == 0
+    junk = json.loads(capsys.readouterr().out)
+    assert junk["weak"] is True
+    assert "only use one if it genuinely covers the job" in junk["note"]
+    assert junk["hits"][0]["score"] < weak["hits"][0]["score"]

@@ -50,6 +50,7 @@ _STOPWORDS = (
 )
 DEFAULT_SEARCH_LIMIT = 8
 MAX_SEARCH_LIMIT = 50
+WEAK_SEARCH_LIMIT = 3
 
 
 def search_procedures(query: str, limit: int | None = None) -> dict[str, Any]:
@@ -70,8 +71,54 @@ def search_procedures(query: str, limit: int | None = None) -> dict[str, Any]:
         require_word_hit=True,
         min_ratio=0.5,
     )
-    hits = [_hit_payload(hit.item_id, catalog[hit.item_id], score=hit.score, snippet=None) for hit in ranked[:capped]]
-    return {"ok": True, "query": query, "hits": hits, "limit": capped, "total": len(ranked)}
+    if ranked:
+        hits = [_hit_payload(hit.item_id, catalog[hit.item_id], score=hit.score, snippet=None) for hit in ranked[:capped]]
+        return {"ok": True, "query": query, "hits": hits, "limit": capped, "total": len(ranked)}
+    return _weak_search(catalog, query, capped)
+
+
+def _weak_search(catalog: dict[str, dict[str, Any]], query: str, capped: int) -> dict[str, Any]:
+    """Strict search found nothing. Retry without the word-hit and ratio floors.
+
+    A natural-language ask often shares no literal word with a procedure that
+    still covers it. Returning nothing reads as "no such procedure" and the
+    caller improvises, so offer the nearest candidates and label them weak.
+
+    The tail is still trimmed by ratio. There is deliberately no absolute score
+    floor: BM25 scores move with corpus size and field weights, so any constant
+    would quietly start dropping good matches as the store grows. A query that
+    matches nothing real can still surface a low-scoring procedure here, which
+    is why the payload says weak and the note tells the caller to check the
+    description before trusting it.
+    """
+    ranked = rank_search(
+        catalog,
+        query,
+        _SEARCH_FIELDS,
+        ngram=3,
+        ngram_weight=0.4,
+        stopwords=_STOPWORDS,
+        require_word_hit=False,
+        min_ratio=0.5,
+    )
+    shown = min(capped, WEAK_SEARCH_LIMIT)
+    hits = [_hit_payload(hit.item_id, catalog[hit.item_id], score=hit.score, snippet=None) for hit in ranked[:shown]]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "query": query,
+        "hits": hits,
+        "limit": capped,
+        "total": len(ranked),
+        "weak": True,
+    }
+    if hits:
+        payload["note"] = (
+            "No strong match. These are the nearest procedures by loose similarity — "
+            "read the descriptions and only use one if it genuinely covers the job."
+        )
+    else:
+        payload["note"] = "No procedure resembles this query. The store may not cover it yet."
+    return payload
 
 
 def _clamp_limit(limit: int | None) -> int:
@@ -134,13 +181,46 @@ def _load_catalog() -> dict[str, dict[str, Any]]:
     return catalog
 
 
-def create_procedure(procedure_id: str, title: str, description: str, tags: list[str]) -> Path:
+def create_procedure(
+    procedure_id: str,
+    title: str,
+    description: str,
+    tags: list[str],
+    steps: list[Mapping[str, Any]] | None = None,
+) -> Path:
+    """Write a new procedure. Pass steps to author the whole thing in one call."""
     target = store.procedure_path(procedure_id)
     if target.exists():
         raise FileExistsError(f"already exists: {target}")
     document = widget.new_procedure(procedure_id, title, description, tags)
+    if steps:
+        document = _append_steps(document, steps)
     write_document(target, document)
     return target
+
+
+def _append_steps(
+    document: Mapping[str, Any],
+    steps: list[Mapping[str, Any]],
+    after: str | None = None,
+) -> dict[str, Any]:
+    """Insert steps in order, in memory. Each entry needs a title and a do."""
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("steps must be a non-empty array")
+    updated = dict(document)
+    cursor = after
+    for position, entry in enumerate(steps):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"steps[{position}] must be an object with title and do")
+        title = entry.get("title")
+        do = entry.get("do")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError(f"steps[{position}].title must be a non-empty string")
+        if not isinstance(do, str) or not do.strip():
+            raise ValueError(f"steps[{position}].do must be a non-empty string")
+        updated = widget.add_step(updated, title, do, after=cursor)
+        cursor = title.strip()
+    return updated
 
 
 def load_procedure(procedure_id: str, full: bool = True) -> dict[str, Any]:
@@ -238,14 +318,22 @@ def edit_meta(
 
 
 def add_step(procedure_id: str, title: str, do: str, after: str | None = None) -> dict[str, Any]:
+    return add_steps(procedure_id, [{"title": title, "do": do}], after=after)
+
+
+def add_steps(
+    procedure_id: str,
+    steps: list[Mapping[str, Any]],
+    after: str | None = None,
+) -> dict[str, Any]:
+    """Append or insert several steps in one read/write. Order is preserved."""
     target = store.procedure_path(procedure_id)
     document = read_document(target)
-    updated = widget.add_step(document, title, do, after=after)
+    updated = _append_steps(document, steps, after=after)
     write_document(target, updated)
-    marker = title.strip()
-    step = next(item for item in updated["steps"] if item.get("title") == marker)
+    added = [str(entry["title"]).strip() for entry in steps]
     titles = [item.get("title") for item in updated["steps"]]
-    return {"ok": True, "id": updated["id"], "step_id": step["id"], "title": step["title"], "steps": titles}
+    return {"ok": True, "id": updated["id"], "added": added, "steps": titles}
 
 
 def edit_step(

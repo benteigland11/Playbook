@@ -54,7 +54,9 @@ Honor `XDG_DATA_HOME` / `APPDATA` / `LOCALAPPDATA`. Commands take a procedure **
 Every command prints JSON (including errors).
 
 ```bash
-playbook create demo --title "Demo" --description "when to pick this" --tags demo
+playbook create demo --title "Demo" --description "when to pick this" --tags demo \
+  --steps '[{"title": "First", "do": "Do the first thing."}]'
+playbook add-steps demo --steps '[{"title": "Next", "do": "Do the next thing."}]'
 playbook add-step demo --title "First" --do "Do the first thing."
 playbook add-step demo --title "Middle" --do "Do the middle." --after "First"
 playbook edit demo --title "Better title"
@@ -66,7 +68,9 @@ playbook validate demo
 playbook mcp
 ```
 
-`search` is BM25 plus character n-grams. Hits are `id`, `title`, `description` only (default 8, cap 50). Weak matches are dropped.
+Write a whole procedure in one call with `--steps` (a JSON array, or `-` to read it from stdin); `add-steps` appends or inserts a batch. The single-step `add-step` is still there for one-off edits.
+
+`search` is BM25 plus character n-grams. Hits are `id`, `title`, `description` only (default 8, cap 50). Weak matches are dropped — but if that leaves nothing, the nearest few come back tagged `"weak": true` with a note, so a natural-language ask that shares no vocabulary with your titles returns candidates instead of a silent empty list.
 
 `load` prints the whole procedure — every step with its `do` — in one call. `--titles` gives the outline only, for checking whether a procedure is the right one before reading it. `start` re-reads a single step: its `do`, its `position`, and the `prev` / `next` titles.
 
@@ -84,9 +88,9 @@ MCP results are compact JSON (no pretty-printing) to keep them cheap in context;
 | --- | --- |
 | `playbook_search` | Intent search |
 | `playbook_open` | Read a procedure whole (default), `full: false` for the outline, `at` for one step |
-| `playbook_create` | New procedure |
+| `playbook_create` | New procedure, steps and all, in one call |
 | `playbook_edit` | Title / description / tags |
-| `playbook_step` | `op`: add \| edit \| remove |
+| `playbook_step` | `op`: add \| edit \| remove; `add` takes one step or a batch |
 | `playbook_validate` | Validate |
 
 ## Tests

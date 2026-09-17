@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from typing import Any, Sequence
 
 from playbook import ops
@@ -32,11 +33,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = _JsonParser(prog="playbook", description="Create and grow playbook procedure JSON files.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    create = sub.add_parser("create", help="write a new empty procedure in the global store")
+    create = sub.add_parser("create", help="write a new procedure in the global store")
     create.add_argument("id")
     create.add_argument("--title", required=True, help="short name shown in search hits")
     create.add_argument("--description", required=True, help="when to pick this procedure (can be verbose)")
     create.add_argument("--tags", required=True, help="comma-separated tags (at least one)")
+    create.add_argument(
+        "--steps",
+        default="",
+        help='JSON array of {"title","do"} objects, or - to read it from stdin; writes the whole procedure at once',
+    )
     create.set_defaults(handler=_cmd_create)
 
     edit = sub.add_parser("edit", help="edit procedure title, description, and/or tags")
@@ -78,6 +84,16 @@ def _build_parser() -> argparse.ArgumentParser:
     add_step.add_argument("--after", default="", help="insert after this unique title (default: append)")
     add_step.set_defaults(handler=_cmd_add_step)
 
+    add_steps = sub.add_parser("add-steps", help="append several steps at once from a JSON array")
+    add_steps.add_argument("id")
+    add_steps.add_argument(
+        "--steps",
+        required=True,
+        help='JSON array of {"title","do"} objects, or - to read it from stdin',
+    )
+    add_steps.add_argument("--after", default="", help="insert after this unique title (default: append)")
+    add_steps.set_defaults(handler=_cmd_add_steps)
+
     edit_step = sub.add_parser("edit-step", help="edit a step by its unique title")
     edit_step.add_argument("id")
     edit_step.add_argument("--title", required=True, help="current unique title to target")
@@ -99,8 +115,9 @@ def _cmd_create(args: argparse.Namespace) -> dict[str, Any]:
     tags = _csv(args.tags)
     if not tags:
         raise ValueError("--tags must include at least one tag")
-    path = ops.create_procedure(args.id, args.title, args.description, tags)
-    return {"ok": True, "id": args.id, "path": str(path)}
+    steps = _steps_json(args.steps)
+    path = ops.create_procedure(args.id, args.title, args.description, tags, steps=steps)
+    return {"ok": True, "id": args.id, "path": str(path), "steps": len(steps or [])}
 
 
 def _cmd_edit(args: argparse.Namespace) -> dict[str, Any]:
@@ -135,6 +152,13 @@ def _cmd_add_step(args: argparse.Namespace) -> dict[str, Any]:
     return ops.add_step(args.id, args.title, args.do_text, after=after)
 
 
+def _cmd_add_steps(args: argparse.Namespace) -> dict[str, Any]:
+    steps = _steps_json(args.steps)
+    if not steps:
+        raise ValueError("--steps must be a non-empty JSON array")
+    return ops.add_steps(args.id, steps, after=args.after.strip() or None)
+
+
 def _cmd_edit_step(args: argparse.Namespace) -> dict[str, Any]:
     new_title = args.rename.strip() or None
     do_text = args.do_text.strip() or None
@@ -152,6 +176,24 @@ def _cmd_mcp(_args: argparse.Namespace) -> None:
 
     serve()
     return None
+
+
+def _steps_json(value: str) -> list[dict[str, Any]] | None:
+    """Parse a JSON array of steps. `-` reads it from stdin."""
+    text = value.strip()
+    if not text:
+        return None
+    if text == "-":
+        text = sys.stdin.read().strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--steps is not valid JSON: {exc.msg}") from exc
+    if not isinstance(parsed, list) or any(not isinstance(item, dict) for item in parsed):
+        raise ValueError('--steps must be a JSON array of {"title", "do"} objects')
+    return parsed
 
 
 def _csv(value: str) -> list[str]:
