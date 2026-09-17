@@ -120,13 +120,13 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_open",
-            "description": "Load a procedure or start at a step. Default load: title, description, step titles (no do). full=true includes every do. at=step title starts there (do plus before/after titles). Do not set both at and full.",
+            "description": "Read a procedure. One call returns the whole thing: title, description, and every step with its do. This is how you follow a procedure — do not call once per step. Options: full=false for step titles only (an outline, when you just want to see if this is the right procedure); at=\"step title\" to re-read a single step you already loaded.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "at": {"type": "string", "description": "Step title to start at. Omit to load."},
-                    "full": {"type": "boolean", "description": "On load, include every step do."},
+                    "at": {"type": "string", "description": "Re-read this one step by title. Omit to read the whole procedure."},
+                    "full": {"type": "boolean", "description": "Default true (every step do). Pass false for titles only."},
                 },
                 "required": ["id"],
             },
@@ -181,7 +181,8 @@ def _call_tool(params: dict[str, Any]) -> dict[str, Any]:
         payload = handler(arguments)
     except Exception as exc:
         return _tool_error(str(exc))
-    return {"content": [{"type": "text", "text": json.dumps(payload, indent=2)}], "isError": False}
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return {"content": [{"type": "text", "text": text}], "isError": False}
 
 
 def _tool_create(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -222,13 +223,15 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
 def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
     procedure_id = _require_str(arguments, "id")
     at = arguments.get("at")
-    full = arguments.get("full") or False
+    full = arguments.get("full")
+    if full is None:
+        full = True
     if full is not True and full is not False:
         raise ValueError("full must be a boolean")
-    if at not in (None, "") and full:
+    if at not in (None, "") and arguments.get("full") is not None:
         raise ValueError("set at or full, not both")
     if at is None or at == "":
-        return ops.load_procedure(procedure_id, full=bool(full))
+        return ops.load_procedure(procedure_id, full=full)
     if not isinstance(at, str):
         raise ValueError("at must be a string")
     return ops.start_procedure(procedure_id, at)

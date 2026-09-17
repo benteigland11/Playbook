@@ -56,12 +56,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     search.set_defaults(handler=_cmd_search)
 
-    load = sub.add_parser("load", help="show procedure title, description, and step titles (no do unless --full)")
+    load = sub.add_parser("load", help="print the whole procedure: title, description, and every step do")
     load.add_argument("id")
-    load.add_argument("--full", action="store_true", help="include every step do (the whole procedure)")
+    load.add_argument("--titles", action="store_true", help="outline only: step titles without their do")
+    load.add_argument("--full", action="store_true", help="deprecated; full output is the default")
     load.set_defaults(handler=_cmd_load)
 
-    start = sub.add_parser("start", help="start at a step title; returns that do plus title trails")
+    start = sub.add_parser("start", help="re-read one step by title; returns that do plus its neighbours")
     start.add_argument("id")
     start.add_argument("--title", required=True, help="unique step title to start at")
     start.set_defaults(handler=_cmd_start)
@@ -116,7 +117,9 @@ def _cmd_search(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _cmd_load(args: argparse.Namespace) -> dict[str, Any]:
-    return ops.load_procedure(args.id, full=args.full)
+    if args.titles and args.full:
+        raise ValueError("pass --titles or --full, not both")
+    return ops.load_procedure(args.id, full=not args.titles)
 
 
 def _cmd_start(args: argparse.Namespace) -> dict[str, Any]:

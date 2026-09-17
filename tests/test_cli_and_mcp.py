@@ -51,19 +51,32 @@ def test_cli_load_and_start(tmp_path: Path, monkeypatch, capsys: pytest.CaptureF
     assert main(["load", "item"]) == 0
     loaded = json.loads(capsys.readouterr().out)
     assert loaded["title"] == "Item"
+    assert loaded["full"] is True
     assert [step["title"] for step in loaded["steps"]] == ["First", "Second", "Third"]
-    assert all("do" not in step for step in loaded["steps"])
-    assert loaded["full"] is False
+    assert [step["do"] for step in loaded["steps"]] == ["Do first.", "Do second.", "Do third."]
+    assert all("id" not in step for step in loaded["steps"])
+    assert main(["load", "item", "--titles"]) == 0
+    outline = json.loads(capsys.readouterr().out)
+    assert outline["full"] is False
+    assert [step["title"] for step in outline["steps"]] == ["First", "Second", "Third"]
+    assert all("do" not in step for step in outline["steps"])
     assert main(["load", "item", "--full"]) == 0
     whole = json.loads(capsys.readouterr().out)
     assert whole["full"] is True
     assert [step["do"] for step in whole["steps"]] == ["Do first.", "Do second.", "Do third."]
+    assert main(["load", "item", "--titles", "--full"]) == 1
+    capsys.readouterr()
     assert main(["start", "item", "--title", "Second"]) == 0
     started = json.loads(capsys.readouterr().out)
     assert started["at"] == "Second"
     assert started["do"] == "Do second."
-    assert started["before"] == ["First"]
-    assert started["after"] == ["Third"]
+    assert started["position"] == "2/3"
+    assert started["prev"] == "First"
+    assert started["next"] == "Third"
+    assert main(["start", "item", "--title", "First"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["prev"] is None
+    assert first["position"] == "1/3"
     assert main(["edit", "item", "--title", "Renamed item", "--tags", "beta"]) == 0
     edited = json.loads(capsys.readouterr().out)
     assert edited["title"] == "Renamed item"
@@ -162,3 +175,56 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
     assert added is not None
     assert added["result"]["isError"] is False
     assert procedure_path("item").is_file()
+
+
+def test_mcp_open_returns_whole_procedure_by_default(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    assert main(["add-step", "item", "--title", "First", "--do", "Do first."]) == 0
+    assert main(["add-step", "item", "--title", "Second", "--do", "Do second."]) == 0
+
+    def call(arguments: dict) -> dict:
+        response = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {"name": "playbook_open", "arguments": arguments},
+            }
+        )
+        assert response is not None
+        return response["result"]
+
+    result = call({"id": "item"})
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["full"] is True
+    assert [step["do"] for step in payload["steps"]] == ["Do first.", "Do second."]
+
+    outline = json.loads(call({"id": "item", "full": False})["content"][0]["text"])
+    assert outline["full"] is False
+    assert all("do" not in step for step in outline["steps"])
+
+    at_step = json.loads(call({"id": "item", "at": "Second"})["content"][0]["text"])
+    assert at_step["do"] == "Do second."
+    assert at_step["position"] == "2/2"
+
+    assert call({"id": "item", "at": "Second", "full": True})["isError"] is True
+
+
+def test_mcp_payloads_are_compact(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {"name": "playbook_open", "arguments": {"id": "item"}},
+        }
+    )
+    assert response is not None
+    text = response["result"]["content"][0]["text"]
+    assert "\n" not in text
+    assert ", " not in text
+    assert json.loads(text)["id"] == "item"

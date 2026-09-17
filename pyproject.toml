@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "playbook"
 version = "0.1.0"
-description = "Procedures as JSON: search by intent, walk titles, one do at a time (CLI + MCP)."
+description = "Procedures as JSON: search by intent, load a whole procedure in one call (CLI + MCP)."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"

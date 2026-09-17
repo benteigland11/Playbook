@@ -143,8 +143,8 @@ def create_procedure(procedure_id: str, title: str, description: str, tags: list
     return target
 
 
-def load_procedure(procedure_id: str, full: bool = False) -> dict[str, Any]:
-    """Return procedure title, description, and step titles. With full=True, include each do."""
+def load_procedure(procedure_id: str, full: bool = True) -> dict[str, Any]:
+    """Return the whole procedure in one call. full=False gives step titles only."""
     document = read_document(store.procedure_path(procedure_id))
     result = widget.validate_procedure(document)
     if not result.valid:
@@ -154,7 +154,7 @@ def load_procedure(procedure_id: str, full: bool = False) -> dict[str, Any]:
     for step in steps:
         if not isinstance(step, dict) or not isinstance(step.get("title"), str):
             continue
-        entry: dict[str, Any] = {"id": step.get("id"), "title": step["title"]}
+        entry: dict[str, Any] = {"title": step["title"]}
         if full:
             entry["do"] = step.get("do")
         listing.append(entry)
@@ -169,7 +169,7 @@ def load_procedure(procedure_id: str, full: bool = False) -> dict[str, Any]:
 
 
 def start_procedure(procedure_id: str, title: str) -> dict[str, Any]:
-    """Open a step by unique title: that step's do, titles before/after without bodies."""
+    """Re-read one step by unique title: its do, its position, and the neighbouring titles."""
     if not isinstance(title, str) or not title.strip():
         raise ValueError("title must be a non-empty string")
     document = read_document(store.procedure_path(procedure_id))
@@ -185,17 +185,17 @@ def start_procedure(procedure_id: str, title: str) -> dict[str, Any]:
     if index is None:
         raise ValueError(f"no step titled {marker!r}")
     current = steps[index]
-    before = [step.get("title") for step in steps[:index] if isinstance(step, dict)]
-    after = [step.get("title") for step in steps[index + 1 :] if isinstance(step, dict)]
+    previous = steps[index - 1] if index > 0 else None
+    following = steps[index + 1] if index + 1 < len(steps) else None
     return {
         "ok": True,
         "id": document.get("id"),
         "title": document.get("title"),
         "at": current.get("title"),
-        "step_id": current.get("id"),
+        "position": f"{index + 1}/{len(steps)}",
         "do": current.get("do"),
-        "before": before,
-        "after": after,
+        "prev": previous.get("title") if isinstance(previous, dict) else None,
+        "next": following.get("title") if isinstance(following, dict) else None,
     }
 
 

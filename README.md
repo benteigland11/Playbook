@@ -1,8 +1,8 @@
 # Playbook
 
-Procedures as JSON. Search them by intent, walk titles, load one `do` at a time.
+Procedures as JSON. Search them by intent, then load one in a single call.
 
-Playbook is a small CLI and MCP server so an agent (or you) can **write, find, and follow** how-tos without dumping the whole playbook into context. CLI verbs stay split. MCP compresses related verbs into fewer tools. Everything is JSON.
+Playbook is a small CLI and MCP server so an agent (or you) can **write, find, and follow** how-tos without dumping the whole playbook into context. Search narrows the store to one procedure; reading that procedure is a single call, not one call per step. CLI verbs stay split. MCP compresses related verbs into fewer tools. Everything is JSON.
 
 Python 3.10+, **stdlib only** at runtime.
 
@@ -60,7 +60,7 @@ playbook add-step demo --title "Middle" --do "Do the middle." --after "First"
 playbook edit demo --title "Better title"
 playbook search "I want to follow a procedure"
 playbook load demo
-playbook load demo --full
+playbook load demo --titles
 playbook start demo --title "First"
 playbook validate demo
 playbook mcp
@@ -68,7 +68,7 @@ playbook mcp
 
 `search` is BM25 plus character n-grams. Hits are `id`, `title`, `description` only (default 8, cap 50). Weak matches are dropped.
 
-`load` is titles only. `--full` includes every `do`. `start` is one `do` plus `before` / `after` titles.
+`load` prints the whole procedure — every step with its `do` — in one call. `--titles` gives the outline only, for checking whether a procedure is the right one before reading it. `start` re-reads a single step: its `do`, its `position`, and the `prev` / `next` titles.
 
 ## MCP (Grok)
 
@@ -78,10 +78,12 @@ grok mcp add --scope user playbook -- playbook mcp
 
 Use an absolute path to `playbook` if the spawned process will not have your shell `PATH`. Then `/mcps` and `r`, or a new session.
 
+MCP results are compact JSON (no pretty-printing) to keep them cheap in context; the CLI stays indented for humans.
+
 | Tool | Role |
 | --- | --- |
 | `playbook_search` | Intent search |
-| `playbook_open` | Load titles, `--full`, or `at` to start a step |
+| `playbook_open` | Read a procedure whole (default), `full: false` for the outline, `at` for one step |
 | `playbook_create` | New procedure |
 | `playbook_edit` | Title / description / tags |
 | `playbook_step` | `op`: add \| edit \| remove |
