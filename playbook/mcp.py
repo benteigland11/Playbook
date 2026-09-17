@@ -72,43 +72,6 @@ def _initialize(params: dict[str, Any]) -> dict[str, Any]:
 def _tool_list() -> list[dict[str, Any]]:
     return [
         {
-            "name": "playbook_create",
-            "description": "Create a procedure. Pass steps to write the whole thing in this one call — never create empty then add steps one at a time.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "title": {"type": "string", "description": "Short name shown in search hits."},
-                    "description": {"type": "string", "description": "When to pick this procedure. Can be verbose."},
-                    "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                    "steps": {
-                        "type": "array",
-                        "description": "The whole procedure, in order.",
-                        "items": {
-                            "type": "object",
-                            "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
-                            "required": ["title", "do"],
-                        },
-                    },
-                },
-                "required": ["id", "title", "description", "tags"],
-            },
-        },
-        {
-            "name": "playbook_edit",
-            "description": "Edit a procedure's title, description, and/or tags. Id does not change. Tags replace the whole list.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                },
-                "required": ["id"],
-            },
-        },
-        {
             "name": "playbook_search",
             "description": "Search procedures by intent. Hits are id, title, and description only; weak matches are dropped. If nothing matches strongly, the nearest few come back with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards.",
             "inputSchema": {
@@ -141,26 +104,35 @@ def _tool_list() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "playbook_step",
-            "description": "Add, edit, or remove serial steps, by unique title. add: a steps array for several at once (prefer this over repeated calls), or one title+do; after inserts instead of appending. edit: title plus rename and/or do. remove: title only; the rest keep their order.",
+            "name": "playbook_write",
+            "description": (
+                "Write to the playbook. Call it when you learn something a model could not derive "
+                "on its own — a tool that already exists, a constraint that is costly to violate, "
+                "an ordering that matters for a non-obvious reason. Steps a competent model would "
+                "work out from the goal do not belong. create: a whole new procedure in one call. "
+                "append: add steps. edit / remove: one step. meta: retitle or retag."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "Procedure id in the global store."},
-                    "op": {"type": "string", "enum": ["add", "edit", "remove"]},
-                    "title": {"type": "string", "description": "New title on add; existing unique title on edit/remove."},
-                    "do": {"type": "string"},
+                    "op": {"type": "string", "enum": ["create", "append", "edit", "remove", "meta"]},
+                    "title": {"type": "string", "description": "On create/meta: short name, shown in search hits."},
+                    "description": {"type": "string", "description": "On create/meta: when to pick this. Can be verbose."},
+                    "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                     "steps": {
                         "type": "array",
-                        "description": "On add: several steps, in order.",
+                        "description": "On create/append: the steps, in order. All at once.",
                         "items": {
                             "type": "object",
                             "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
                             "required": ["title", "do"],
                         },
                     },
-                    "after": {"type": "string", "description": "On add: insert after this title. Omit to append."},
-                    "rename": {"type": "string", "description": "On edit: new title."},
+                    "step": {"type": "string", "description": "On edit/remove: the step's unique title."},
+                    "do": {"type": "string", "description": "On edit: the step's new body."},
+                    "rename": {"type": "string", "description": "On edit: the step's new title."},
+                    "after": {"type": "string", "description": "On append: insert after this step title. Omit for the end."},
                 },
                 "required": ["id", "op"],
             },
@@ -176,11 +148,9 @@ def _call_tool(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(arguments, dict):
         return _tool_error("arguments must be an object")
     handlers: dict[str, ToolHandler] = {
-        "playbook_create": _tool_create,
-        "playbook_edit": _tool_edit,
         "playbook_search": _tool_search,
         "playbook_open": _tool_open,
-        "playbook_step": _tool_step,
+        "playbook_write": _tool_write,
     }
     handler = handlers.get(name)
     if handler is None:
@@ -191,31 +161,6 @@ def _call_tool(params: dict[str, Any]) -> dict[str, Any]:
         return _tool_error(str(exc))
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _tool_create(arguments: dict[str, Any]) -> dict[str, Any]:
-    tags = _str_list(arguments.get("tags"), "tags")
-    if not tags:
-        raise ValueError("tags must be a non-empty array of strings")
-    steps = _step_list(arguments.get("steps"))
-    path = ops.create_procedure(
-        _require_str(arguments, "id"),
-        _require_str(arguments, "title"),
-        _require_str(arguments, "description"),
-        tags,
-        steps=steps,
-    )
-    return {"ok": True, "id": arguments["id"], "path": str(path), "steps": len(steps or [])}
-
-
-def _tool_edit(arguments: dict[str, Any]) -> dict[str, Any]:
-    tags = arguments.get("tags")
-    return ops.edit_meta(
-        _require_str(arguments, "id"),
-        title=str(arguments["title"]) if arguments.get("title") else None,
-        description=str(arguments["description"]) if arguments.get("description") else None,
-        tags=_str_list(tags, "tags") if tags is not None else None,
-    )
 
 
 def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -247,28 +192,53 @@ def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
     return ops.start_procedure(procedure_id, at)
 
 
-def _tool_step(arguments: dict[str, Any]) -> dict[str, Any]:
+def _tool_write(arguments: dict[str, Any]) -> dict[str, Any]:
     op = _require_str(arguments, "op")
     procedure_id = _require_str(arguments, "id")
-    if op == "add":
+    steps = _step_list(arguments.get("steps"))
+    tags = arguments.get("tags")
+
+    if op == "create":
+        resolved = _str_list(tags, "tags")
+        if not resolved:
+            raise ValueError("create needs tags: a non-empty array of strings")
+        path = ops.create_procedure(
+            procedure_id,
+            _require_str(arguments, "title"),
+            _require_str(arguments, "description"),
+            resolved,
+            steps=steps,
+        )
+        return {"ok": True, "id": procedure_id, "path": str(path), "steps": len(steps or [])}
+
+    if op == "append":
+        if not steps:
+            raise ValueError("append needs steps: an array of {title, do} objects")
         after = str(arguments["after"]) if arguments.get("after") else None
-        batch = _step_list(arguments.get("steps"))
-        if not batch:
-            batch = [{"title": _require_str(arguments, "title"), "do": _require_str(arguments, "do")}]
-        return ops.add_steps(procedure_id, batch, after=after)
-    title = _require_str(arguments, "title")
+        return ops.add_steps(procedure_id, steps, after=after)
+
     if op == "edit":
         rename = arguments.get("rename")
         do = arguments.get("do")
         return ops.edit_step(
             procedure_id,
-            title,
+            _require_str(arguments, "step"),
             new_title=str(rename) if rename else None,
             do=str(do) if do else None,
         )
+
     if op == "remove":
-        return ops.remove_step(procedure_id, title)
-    raise ValueError("op must be add, edit, or remove")
+        return ops.remove_step(procedure_id, _require_str(arguments, "step"))
+
+    if op == "meta":
+        return ops.edit_meta(
+            procedure_id,
+            title=str(arguments["title"]) if arguments.get("title") else None,
+            description=str(arguments["description"]) if arguments.get("description") else None,
+            tags=_str_list(tags, "tags") if tags is not None else None,
+        )
+
+    raise ValueError("op must be create, append, edit, remove, or meta")
 
 
 def _step_list(value: Any) -> list[dict[str, Any]] | None:

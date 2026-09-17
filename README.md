@@ -114,11 +114,24 @@ MCP results are compact JSON (no pretty-printing) to keep them cheap in context;
 | --- | --- |
 | `playbook_search` | Intent search |
 | `playbook_open` | Read a procedure whole (default), `full: false` for the outline, `at` for one step |
-| `playbook_create` | New procedure, steps and all, in one call |
-| `playbook_edit` | Title / description / tags |
-| `playbook_step` | `op`: add \| edit \| remove; `add` takes one step or a batch |
+| `playbook_write` | `op`: create \| append \| edit \| remove \| meta |
 
-Five tools, not six. Reads validate on their own — `playbook_open` fails with every schema error — so a separate validate tool would only add schema to every request. The CLI keeps `playbook validate` for when you want a report instead of an error.
+Three tools. A tool's schema is in context on every request, whether or not it
+is called, so the surface is kept to find, read, and write.
+
+Reads validate on their own — `playbook_open` fails with every schema error —
+so a separate validate tool would only add schema to every request. The CLI
+keeps `playbook validate` for when you want a report instead of an error.
+
+The write verbs are one tool rather than three for the same reason, and because
+a tool description is the only place the rule above is stated *at the moment of
+the decision*. This README is not in context when a procedure gets minted;
+`playbook_write` is. That is where "outside the bounds of the neural net" has to
+live to have any effect.
+
+The CLI keeps every verb split. Local verbs cost nothing per request, and
+`create` / `add-step` / `edit-step` / `remove-step` read better in a shell than
+a single command with a mode flag.
 
 ## Tests
 

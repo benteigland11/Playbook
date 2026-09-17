@@ -136,14 +136,14 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
     listed = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     assert listed is not None
     names = [tool["name"] for tool in listed["result"]["tools"]]
-    assert "playbook_create" in names
-    assert "playbook_edit" in names
-    assert "playbook_search" in names
-    assert "playbook_open" in names
-    assert "playbook_step" in names
-    assert "playbook_add_step" not in names
-    # Reads validate on their own, so the tool surface carries no validate.
+    # One read tool, one search tool, one write tool. Every extra tool costs
+    # schema on every request, so the surface stays at three.
+    assert names == ["playbook_search", "playbook_open", "playbook_write"]
     assert "playbook_validate" not in names
+    write = next(tool for tool in listed["result"]["tools"] if tool["name"] == "playbook_write")
+    # The rule for what earns a procedure lives here, where it is in context at
+    # the moment of the decision. The README cannot do that job.
+    assert "could not derive" in write["description"]
 
     created = handle_message(
         {
@@ -151,8 +151,9 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
             "id": 2,
             "method": "tools/call",
             "params": {
-                "name": "playbook_create",
+                "name": "playbook_write",
                 "arguments": {
+                    "op": "create",
                     "id": "item",
                     "title": "Item",
                     "description": "choose a mode",
@@ -169,8 +170,12 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "playbook_step",
-                "arguments": {"id": "item", "op": "add", "title": "Ask for mode", "do": "Set the mode."},
+                "name": "playbook_write",
+                "arguments": {
+                    "op": "append",
+                    "id": "item",
+                    "steps": [{"title": "Ask for mode", "do": "Set the mode."}],
+                },
             },
         }
     )
@@ -278,41 +283,65 @@ def test_batch_add_is_atomic(tmp_path: Path, monkeypatch) -> None:
     assert [step["title"] for step in document["steps"]] == ["Kept"]
 
 
-def test_mcp_create_and_step_accept_batches(tmp_path: Path, monkeypatch) -> None:
+def test_mcp_write_covers_every_op(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
-    def call(name: str, arguments: dict) -> dict:
+    def call(arguments: dict) -> dict:
         response = handle_message(
-            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "playbook_write", "arguments": arguments},
+            }
         )
         assert response is not None
         return response["result"]
 
+    def titles() -> list[str]:
+        document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+        return [step["title"] for step in document["steps"]]
+
     created = call(
-        "playbook_create",
         {
+            "op": "create",
             "id": "item",
             "title": "Item",
             "description": "when to pick",
             "tags": ["alpha"],
             "steps": [{"title": "First", "do": "Do first."}, {"title": "Second", "do": "Do second."}],
-        },
+        }
     )
     assert created["isError"] is False
     assert json.loads(created["content"][0]["text"])["steps"] == 2
 
-    added = call(
-        "playbook_step",
-        {"id": "item", "op": "add", "steps": [{"title": "Third", "do": "Do third."}]},
-    )
-    assert added["isError"] is False
-    assert json.loads(added["content"][0]["text"])["added"] == ["Third"]
+    appended = call({"op": "append", "id": "item", "steps": [{"title": "Third", "do": "Do third."}]})
+    assert appended["isError"] is False
+    assert json.loads(appended["content"][0]["text"])["added"] == ["Third"]
+    assert titles() == ["First", "Second", "Third"]
 
-    single = call("playbook_step", {"id": "item", "op": "add", "title": "Fourth", "do": "Do fourth."})
-    assert single["isError"] is False
+    assert call({"op": "append", "id": "item", "steps": [{"title": "1a", "do": "Do 1a."}], "after": "First"})["isError"] is False
+    assert titles() == ["First", "1a", "Second", "Third"]
+
+    assert call({"op": "edit", "id": "item", "step": "1a", "rename": "Between", "do": "Do between."})["isError"] is False
+    assert titles() == ["First", "Between", "Second", "Third"]
     document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
-    assert [step["title"] for step in document["steps"]] == ["First", "Second", "Third", "Fourth"]
-    assert call("playbook_step", {"id": "item", "op": "remove"})["isError"] is True
+    assert document["steps"][1]["do"] == "Do between."
+
+    assert call({"op": "remove", "id": "item", "step": "Between"})["isError"] is False
+    assert titles() == ["First", "Second", "Third"]
+
+    assert call({"op": "meta", "id": "item", "title": "Renamed", "tags": ["beta"]})["isError"] is False
+    document = json.loads(procedure_path("item").read_text(encoding="utf-8"))
+    assert document["title"] == "Renamed"
+    assert document["tags"] == ["beta"]
+    assert document["description"] == "when to pick"
+
+    # Each op says what it is missing rather than failing obscurely.
+    assert call({"op": "append", "id": "item"})["isError"] is True
+    assert call({"op": "remove", "id": "item"})["isError"] is True
+    assert call({"op": "create", "id": "other", "title": "T", "description": "d"})["isError"] is True
+    assert call({"op": "nonsense", "id": "item"})["isError"] is True
 
 
 def test_search_falls_back_to_weak_matches(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
