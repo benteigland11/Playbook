@@ -6,6 +6,32 @@ Playbook is a small CLI and MCP server so an agent (or you) can **write, find, a
 
 Python 3.10+, **stdlib only** at runtime.
 
+## What earns a procedure
+
+**If it is outside the bounds of the neural net, it is a procedure.**
+
+A model given a clear goal will derive `a → b → c` on its own, and derive it
+better than a written procedure can, because it can see the actual code.
+Writing that down buys nothing and costs tokens every time it is read. What a
+model cannot derive is anything true about *your* world and false by default in
+its own:
+
+- **Inventory** — what already exists that would otherwise be rebuilt from
+  scratch. A library, an internal service, a widget catalog.
+- **Constraints** — invariants that are non-obvious and expensive to violate.
+- **Orderings with a reason** — sequences where the order matters for a cause
+  that cannot be inferred from the code in front of you.
+
+The test is recomputability, not length or importance. "Roll back by pinning the
+last good build" is a procedure if finding the last good build is peculiar to
+your setup, and is noise if it is obvious from the deploy tool.
+
+This bound is also what keeps a store finite. Treat procedures as step
+sequences and every task appears to need one, so the store grows without ever
+converging. Treat them as the things a model cannot know, and the set is capped
+by how many such things you actually have. New procedures getting *rarer* over
+time is the sign a playbook is working.
+
 ## Install
 
 ```bash
