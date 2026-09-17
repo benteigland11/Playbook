@@ -117,7 +117,8 @@ MCP results are compact JSON (no pretty-printing) to keep them cheap in context;
 | `playbook_create` | New procedure, steps and all, in one call |
 | `playbook_edit` | Title / description / tags |
 | `playbook_step` | `op`: add \| edit \| remove; `add` takes one step or a batch |
-| `playbook_validate` | Validate |
+
+Five tools, not six. Reads validate on their own — `playbook_open` fails with every schema error — so a separate validate tool would only add schema to every request. The CLI keeps `playbook validate` for when you want a report instead of an error.
 
 ## Tests
 

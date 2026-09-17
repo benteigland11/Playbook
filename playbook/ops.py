@@ -226,9 +226,7 @@ def _append_steps(
 def load_procedure(procedure_id: str, full: bool = True) -> dict[str, Any]:
     """Return the whole procedure in one call. full=False gives step titles only."""
     document = read_document(store.procedure_path(procedure_id))
-    result = widget.validate_procedure(document)
-    if not result.valid:
-        raise ValueError("; ".join(f"{item.path}: {item.message}" for item in result.errors))
+    _require_valid(document, procedure_id)
     steps = document.get("steps") if isinstance(document.get("steps"), list) else []
     listing = []
     for step in steps:
@@ -253,9 +251,7 @@ def start_procedure(procedure_id: str, title: str) -> dict[str, Any]:
     if not isinstance(title, str) or not title.strip():
         raise ValueError("title must be a non-empty string")
     document = read_document(store.procedure_path(procedure_id))
-    result = widget.validate_procedure(document)
-    if not result.valid:
-        raise ValueError("invalid procedure")
+    _require_valid(document, procedure_id)
     steps = document.get("steps") if isinstance(document.get("steps"), list) else []
     marker = title.strip()
     index = next(
@@ -277,6 +273,16 @@ def start_procedure(procedure_id: str, title: str) -> dict[str, Any]:
         "prev": previous.get("title") if isinstance(previous, dict) else None,
         "next": following.get("title") if isinstance(following, dict) else None,
     }
+
+
+def _require_valid(document: Mapping[str, Any], procedure_id: str) -> None:
+    """Raise with every schema error. Reads carry their own validation, so
+    callers never need a separate validate step to find out what is wrong."""
+    result = widget.validate_procedure(document)
+    if result.valid:
+        return
+    detail = "; ".join(f"{item.path}: {item.message}" for item in result.errors)
+    raise ValueError(f"procedure {procedure_id!r} is invalid: {detail}")
 
 
 def validate_procedure(procedure_id: str) -> dict[str, Any]:

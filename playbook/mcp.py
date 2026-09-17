@@ -73,17 +73,17 @@ def _tool_list() -> list[dict[str, Any]]:
     return [
         {
             "name": "playbook_create",
-            "description": "Create a procedure in the global store. Pass steps to write the whole procedure in this one call — do not create empty and then add steps one at a time.",
+            "description": "Create a procedure. Pass steps to write the whole thing in this one call — never create empty then add steps one at a time.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
                     "title": {"type": "string", "description": "Short name shown in search hits."},
-                    "description": {"type": "string", "description": "When to pick this procedure. Can be multiple sentences / verbose."},
+                    "description": {"type": "string", "description": "When to pick this procedure. Can be verbose."},
                     "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                     "steps": {
                         "type": "array",
-                        "description": "The whole procedure, in order. Omit only if you truly have no steps yet.",
+                        "description": "The whole procedure, in order.",
                         "items": {
                             "type": "object",
                             "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
@@ -110,7 +110,7 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_search",
-            "description": "Search procedures by intent. Hits are id, title, and description only. Weak matches are dropped (word hit required, score at least half the top hit). If nothing matches strongly, the nearest few are returned with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards. At most `limit` hits.",
+            "description": "Search procedures by intent. Hits are id, title, and description only; weak matches are dropped. If nothing matches strongly, the nearest few come back with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -129,29 +129,20 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_open",
-            "description": "Read a procedure. One call returns the whole thing: title, description, and every step with its do. This is how you follow a procedure — do not call once per step. Options: full=false for step titles only (an outline, when you just want to see if this is the right procedure); at=\"step title\" to re-read a single step you already loaded.",
+            "description": "Read a procedure whole: title, description, and every step with its do. This is how you follow one — never call once per step. full=false gives titles only, to check whether this is the right procedure; at=\"step title\" re-reads one step. A malformed procedure fails here with every schema error, so there is no separate validate.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "at": {"type": "string", "description": "Re-read this one step by title. Omit to read the whole procedure."},
-                    "full": {"type": "boolean", "description": "Default true (every step do). Pass false for titles only."},
+                    "at": {"type": "string", "description": "Re-read one step by title. Omit for the whole procedure."},
+                    "full": {"type": "boolean", "description": "Default true. False gives titles only."},
                 },
                 "required": ["id"],
             },
         },
         {
-            "name": "playbook_validate",
-            "description": "Validate a procedure in the global store. Returns validity, errors, and step titles — not step bodies.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"id": {"type": "string"}},
-                "required": ["id"],
-            },
-        },
-        {
             "name": "playbook_step",
-            "description": "Add, edit, or remove serial steps (lookup by unique title). add: either one title+do, or a steps array to add several at once — prefer the array over repeated calls. Optional after inserts instead of appending. edit: title plus rename and/or do (id unchanged). remove: title only; remaining steps fuse in order.",
+            "description": "Add, edit, or remove serial steps, by unique title. add: a steps array for several at once (prefer this over repeated calls), or one title+do; after inserts instead of appending. edit: title plus rename and/or do. remove: title only; the rest keep their order.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -161,14 +152,14 @@ def _tool_list() -> list[dict[str, Any]]:
                     "do": {"type": "string"},
                     "steps": {
                         "type": "array",
-                        "description": "On add: several steps in order, instead of title+do.",
+                        "description": "On add: several steps, in order.",
                         "items": {
                             "type": "object",
                             "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
                             "required": ["title", "do"],
                         },
                     },
-                    "after": {"type": "string", "description": "On add: insert after this unique title. Omit to append."},
+                    "after": {"type": "string", "description": "On add: insert after this title. Omit to append."},
                     "rename": {"type": "string", "description": "On edit: new title."},
                 },
                 "required": ["id", "op"],
@@ -189,7 +180,6 @@ def _call_tool(params: dict[str, Any]) -> dict[str, Any]:
         "playbook_edit": _tool_edit,
         "playbook_search": _tool_search,
         "playbook_open": _tool_open,
-        "playbook_validate": _tool_validate,
         "playbook_step": _tool_step,
     }
     handler = handlers.get(name)
@@ -255,10 +245,6 @@ def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(at, str):
         raise ValueError("at must be a string")
     return ops.start_procedure(procedure_id, at)
-
-
-def _tool_validate(arguments: dict[str, Any]) -> dict[str, Any]:
-    return ops.validate_procedure(_require_str(arguments, "id"))
 
 
 def _tool_step(arguments: dict[str, Any]) -> dict[str, Any]:

@@ -142,6 +142,8 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
     assert "playbook_open" in names
     assert "playbook_step" in names
     assert "playbook_add_step" not in names
+    # Reads validate on their own, so the tool surface carries no validate.
+    assert "playbook_validate" not in names
 
     created = handle_message(
         {
@@ -344,3 +346,42 @@ def test_search_falls_back_to_weak_matches(tmp_path: Path, monkeypatch, capsys: 
     assert junk["weak"] is True
     assert "only use one if it genuinely covers the job" in junk["note"]
     assert junk["hits"][0]["score"] < weak["hits"][0]["score"]
+
+
+def test_open_reports_schema_errors_without_a_validate_tool(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    path = procedure_path("bad")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"id": "bad", "description": "x", "tags": ["alpha"], "steps": [{"title": "Ask"}]}\n',
+        encoding="utf-8",
+    )
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {"name": "playbook_open", "arguments": {"id": "bad"}},
+        }
+    )
+    assert response is not None
+    assert response["result"]["isError"] is True
+    message = response["result"]["content"][0]["text"]
+    assert "'bad' is invalid" in message
+    # Every error, so the caller can fix it without a second round trip.
+    assert "$.title" in message
+    assert "$.steps[0]" in message
+
+    # The CLI keeps its validate verb; only the always-on MCP surface loses it.
+    assert main(["validate", "bad"]) == 2
+
+    unknown = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "playbook_validate", "arguments": {"id": "bad"}},
+        }
+    )
+    assert unknown is not None
+    assert unknown["result"]["isError"] is True
