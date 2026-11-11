@@ -67,7 +67,7 @@ There is no CLI flag. A flag on one command would not match a server started as 
 
 The value is the directory that holds the procedure JSON files (the same directory the default `.../procedures` path is). `~` and environment variables are expanded, so `~/notes/procedures`, `$HOME/notes/procedures`, and `${PLAYBOOK_ROOT}/procedures` all work. A relative path is relative to the process working directory, so prefer `~` or an absolute path in the config file. A blank value is ignored and the next source is used. The directory is created on the first write if it is missing, and looking up the path does not create it.
 
-Config file (JSON, one key). Playbook does not create this file.
+Config file (JSON). Playbook does not create this file. `store` is the procedure directory. `machine` and `usage` are for the [usage log](#usage-log) and do not change where procedures are stored.
 
 | OS | File |
 | --- | --- |
@@ -105,7 +105,7 @@ Config file (JSON, one key). Playbook does not create this file.
 
 ## CLI
 
-Every command prints JSON (including errors).
+Every command prints JSON (including errors). `playbook usage list` prints a table unless `--json` is set.
 
 ```bash
 playbook create demo --title "Demo" --description "when to pick this" --tags demo \
@@ -119,6 +119,7 @@ playbook load demo
 playbook load demo --titles
 playbook start demo --title "First"
 playbook validate demo
+playbook usage list
 playbook mcp
 ```
 
@@ -160,6 +161,26 @@ live to have any effect.
 The CLI keeps every verb split. Local verbs cost nothing per request, and
 `create` / `add-step` / `edit-step` / `remove-step` read better in a shell than
 a single command with a mode flag.
+
+## Usage log
+
+Playbook appends a local log of searches, opens, walks, ticks, and writes. The log does not change search hits, procedure text, or errors. A failure to write it does not fail the command.
+
+The file is `<store>/.usage/<machine>.jsonl`: one JSON object per line, one file per machine. `PLAYBOOK_USAGE` points the directory somewhere else. Each line has a version, a UTC time, a run id, a machine id, `real` or `gym`, and a place. In a git checkout the place is the origin reduced to `host/owner/repo` (lowercase, no `.git`) plus `sub`, the path inside the repo. Outside a repo it is a home-relative path (`~/notes`), never an absolute `/home/<user>` path. `PLAYBOOK_PLACE` replaces that with a label such as `grokbot:routine:ai-news`.
+
+The machine id is `PLAYBOOK_MACHINE`, or the `machine` string in the config file, or a hostname slug plus a short suffix saved once in `.usage/machines.json`. A run id is `PLAYBOOK_RUN` when that is set. Otherwise the MCP server mints one id at startup and reuses it, and the CLI mints a new id each invocation. `PLAYBOOK_RUN_KIND=gym` marks a gym run. `PLAYBOOK_HARNESS` is recorded only when it is set.
+
+Free text (the query, a walk's purpose, a skip reason, a tick note) is cut to 200 characters. Token-shaped strings are stored as `[redacted]`.
+
+Turn recording off with `"usage": false` in the config file, or `PLAYBOOK_USAGE_OFF=1`.
+
+```bash
+playbook usage list
+playbook usage list --card follow-playbook --ev write --since 2026-11-01 --limit 20
+playbook usage list --json
+```
+
+If the store is committed, `.usage/` stays out of git. When Playbook creates `.usage/` and the store directory already has a `.gitignore`, it appends a `.usage/` line if that line is missing. It does not create a `.gitignore` that was not already there.
 
 ## Tests
 

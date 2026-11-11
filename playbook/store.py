@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from playbook.app_paths import resolve_app_paths
 
@@ -46,8 +47,30 @@ def procedure_path(procedure_id: str) -> Path:
 
 
 def config_file() -> Path:
-    """Where a ``store`` path may be written. Not created by Playbook."""
+    """Config file path. Not created by Playbook.
+
+    ``store`` selects the procedure directory. ``machine`` and ``usage`` are
+    read by the usage log and ignored by store resolution.
+    """
     return resolve_app_paths(APP_NAME).config_dir / CONFIG_FILENAME
+
+
+def load_config() -> dict[str, Any] | None:
+    """The config object, or None when no config file exists.
+
+    This is the same read ``procedures_dir`` uses. A missing file is empty.
+    A file that is not a JSON object raises ValueError.
+    """
+    path = config_file()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read playbook config {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"playbook config {path}: expected a JSON object")
+    return data
 
 
 def _configured_store() -> Path | None:
@@ -58,23 +81,18 @@ def _configured_store() -> Path | None:
 
 
 def _store_from_config() -> Path | None:
-    path = config_file()
-    if not path.is_file():
+    data = load_config()
+    if data is None:
         return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"cannot read playbook config {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError(f"playbook config {path}: expected a JSON object")
     if CONFIG_KEY not in data or data[CONFIG_KEY] is None:
         return None
-    store = data[CONFIG_KEY]
-    if not isinstance(store, str):
+    store_value = data[CONFIG_KEY]
+    if not isinstance(store_value, str):
+        path = config_file()
         raise ValueError(f"playbook config {path}: {CONFIG_KEY!r} must be a string")
-    if not store.strip():
+    if not store_value.strip():
         return None
-    return expand_store_path(store)
+    return expand_store_path(store_value)
 
 
 def expand_store_path(value: str) -> Path:

@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any, Sequence
 
-from playbook import library, ops
+from playbook import library, ops, usage
 
 # The working tree remembers that the playbook was searched from here (create checks for it), the way
 # Cartograph's cg/.searched does: a method is looked for before it is written.
@@ -29,6 +29,10 @@ def _searched_here() -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        usage.new_invocation()
+    except Exception:
+        pass
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
@@ -38,7 +42,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if payload is not None:
         print(json.dumps(payload, indent=2))
-    return 0 if _ok(payload) else 2
+    code = 0 if _ok(payload) else 2
+    if code == 0:
+        try:
+            usage.note_cli(args, payload)
+        except Exception:
+            pass
+    return code
 
 
 class _JsonParser(argparse.ArgumentParser):
@@ -209,6 +219,17 @@ def _build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--protect", action="append", default=None, metavar="PREFIX")
     pl.set_defaults(handler=lambda a: library.set_policy(enabled=a.enabled, grace=a.grace, protect=a.protect))
 
+    usage_cmd = sub.add_parser("usage", help="read the local usage log")
+    usage_sub = usage_cmd.add_subparsers(dest="usage_command", required=True)
+    usage_list = usage_sub.add_parser("list", help="list usage events, newest first")
+    usage_list.add_argument("--card", default="", help="only events for this procedure id")
+    usage_list.add_argument("--machine", default="", help="only events from this machine id")
+    usage_list.add_argument("--ev", default="", help="only this event kind (search, opened, walked, tick, write)")
+    usage_list.add_argument("--since", default="", help="YYYY-MM-DD or an ISO timestamp (UTC)")
+    usage_list.add_argument("--limit", type=int, default=0, help="newest N events (default: all)")
+    usage_list.add_argument("--json", action="store_true", help="print JSON lines instead of a table")
+    usage_list.set_defaults(handler=_cmd_usage_list)
+
     mcp = sub.add_parser("mcp", help="run the MCP server on stdio")
     mcp.set_defaults(handler=_cmd_mcp)
 
@@ -219,6 +240,24 @@ def _cmd_mcp(_args: argparse.Namespace) -> None:
     from playbook.mcp import serve
 
     serve()
+    return None
+
+
+def _cmd_usage_list(args: argparse.Namespace) -> None:
+    if args.limit < 0:
+        raise ValueError("--limit must be an integer >= 0")
+    events = usage.list_events(
+        card=args.card.strip() or None,
+        machine=args.machine.strip() or None,
+        ev=args.ev.strip() or None,
+        since=args.since.strip() or None,
+        limit=args.limit or None,
+    )
+    if args.json:
+        for event in events:
+            print(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+        return None
+    print(usage.format_table(events))
     return None
 
 

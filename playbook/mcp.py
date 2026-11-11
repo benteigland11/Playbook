@@ -6,7 +6,17 @@ import json
 import sys
 from typing import Any, Callable, TextIO
 
-from playbook import ops
+from playbook import ops, usage
+
+# CLI write names for the five MCP write ops. The tool schema stays
+# create | append | edit | remove | meta; the log uses the CLI verbs.
+_WRITE_LOG_OP = {
+    "create": "create",
+    "append": "add-step",
+    "edit": "edit-step",
+    "remove": "remove-step",
+    "meta": "edit",
+}
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "playbook"
@@ -16,6 +26,10 @@ ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
+    try:
+        usage.new_invocation()
+    except Exception:
+        pass
     incoming = stdin or sys.stdin
     outgoing = stdout or sys.stdout
     while True:
@@ -181,7 +195,9 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
     limit = arguments.get("limit")
     if limit is not None and not isinstance(limit, int):
         raise ValueError("limit must be an integer")
-    return ops.search_procedures(query, limit=limit)
+    result = ops.search_procedures(query, limit=limit)
+    usage.log_search(query, result.get("hits") or [])
+    return result
 
 
 def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -199,14 +215,20 @@ def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
         if at not in (None, "") or arguments.get("full") is not None:
             raise ValueError("upstream stands alone: drop at and full")
         ops.load_procedure(procedure_id, full=False)
-        return ops.upstream(procedure_id)
+        result = ops.upstream(procedure_id)
+        usage.log_opened(procedure_id)
+        return result
     if at not in (None, "") and arguments.get("full") is not None:
         raise ValueError("set at or full, not both")
     if at is None or at == "":
-        return ops.load_procedure(procedure_id, full=full)
+        result = ops.load_procedure(procedure_id, full=full)
+        usage.log_opened(procedure_id)
+        return result
     if not isinstance(at, str):
         raise ValueError("at must be a string")
-    return ops.start_procedure(procedure_id, at)
+    result = ops.start_procedure(procedure_id, at)
+    usage.log_opened(procedure_id)
+    return result
 
 
 def _tool_write(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -226,38 +248,36 @@ def _tool_write(arguments: dict[str, Any]) -> dict[str, Any]:
             resolved,
             steps=steps,
         )
-        return {"ok": True, "id": procedure_id, "path": str(path), "steps": len(steps or [])}
-
-    if op == "append":
+        result: dict[str, Any] = {"ok": True, "id": procedure_id, "path": str(path), "steps": len(steps or [])}
+    elif op == "append":
         if not steps:
             raise ValueError("append needs steps: an array of {title, do} objects")
         after = str(arguments["after"]) if arguments.get("after") else None
-        return ops.add_steps(procedure_id, steps, after=after)
-
-    if op == "edit":
+        result = ops.add_steps(procedure_id, steps, after=after)
+    elif op == "edit":
         rename = arguments.get("rename")
         do = arguments.get("do")
         linked = arguments.get("procedure")
-        return ops.edit_step(
+        result = ops.edit_step(
             procedure_id,
             _require_str(arguments, "step"),
             new_title=str(rename) if rename else None,
             do=str(do) if do else None,
             procedure=str(linked) if linked else None,
         )
-
-    if op == "remove":
-        return ops.remove_step(procedure_id, _require_str(arguments, "step"))
-
-    if op == "meta":
-        return ops.edit_meta(
+    elif op == "remove":
+        result = ops.remove_step(procedure_id, _require_str(arguments, "step"))
+    elif op == "meta":
+        result = ops.edit_meta(
             procedure_id,
             title=str(arguments["title"]) if arguments.get("title") else None,
             description=str(arguments["description"]) if arguments.get("description") else None,
             tags=_str_list(tags, "tags") if tags is not None else None,
         )
-
-    raise ValueError("op must be create, append, edit, remove, or meta")
+    else:
+        raise ValueError("op must be create, append, edit, remove, or meta")
+    usage.log_write(procedure_id, _WRITE_LOG_OP[op], walk=False)
+    return result
 
 
 def _step_list(value: Any) -> list[dict[str, Any]] | None:
