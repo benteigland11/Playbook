@@ -520,27 +520,6 @@ def test_a_flat_walk_inlines_links_cuts_at_a_boundary_and_edits_write_through(tm
     assert "already_open" not in reply and reply["steps"] == 1 and "Rubato" in Path(reply["path"]).read_text()
 
 
-def test_a_procedure_names_the_widgets_its_method_calls(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
-    """Widgets are a field of the procedure, not a step: the walk lists them at the top and reach reports them,
-    so the host installs them before the walk and no step says "install X"."""
-    import json as _json
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "pedal", "--title", "Pedal", "--description", "d", "--tags", "midi"]) == 0
-    assert main(["add-step", "pedal", "--title", "Place", "--do", "call apply_pedal_per_harmony on the file"]) == 0
-    assert main(["edit", "pedal", "--widgets", "data-music-pedal-per-harmony-python, data-binary-midi-parser-python"]) == 0
-    capsys.readouterr()
-    assert main(["create", "compose", "--title", "Compose", "--description", "d", "--tags", "midi"]) == 0
-    assert main(["add-step", "compose", "--title", "Pedal", "--do", "x", "--procedure", "pedal"]) == 0
-    assert main(["edit", "compose", "--widgets", "data-music-broken-chord-piano-python"]) == 0
-    capsys.readouterr()
-    assert main(["reach", "compose"]) == 0
-    r = _json.loads(capsys.readouterr().out)
-    assert r["widgets"] == ["data-music-broken-chord-piano-python", "data-binary-midi-parser-python", "data-music-pedal-per-harmony-python"]
-    assert main(["open", "compose", "--for", "the piece", "--dir", str(tmp_path)]) == 0
-    text = Path(_json.loads(capsys.readouterr().out)["path"]).read_text()
-    assert text.index("widgets: `data-music-broken-chord-piano-python`, `data-binary-midi-parser-python`") < text.index("- [ ] **1.")
-
-
 def test_a_twin_procedure_is_refused_with_the_one_to_improve(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
     """One composition method that grows, not a sibling per gym: a create whose id and title share the skill words
     of a procedure in the store is refused, naming it; a narrower procedure (one decision) is not a twin."""

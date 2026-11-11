@@ -414,3 +414,57 @@ def test_open_reports_schema_errors_without_a_validate_tool(tmp_path: Path, monk
     )
     assert unknown is not None
     assert unknown["result"]["isError"] is True
+
+
+def _mcp(name: str, arguments: dict) -> dict:
+    response = handle_message(
+        {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+    )
+    assert response is not None
+    return response["result"]
+
+
+def _payload(result: dict) -> dict:
+    assert result["isError"] is False, result
+    return json.loads(result["content"][0]["text"])
+
+
+def test_mcp_links_steps_shows_gravity_and_climbs_upstream(tmp_path: Path, monkeypatch) -> None:
+    """Linking, the loop guard, gravity and upstream all reach an agent through the same three tools."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    _payload(_mcp("playbook_write", {"op": "create", "id": "tune-guitar", "title": "Tune a guitar",
+                                     "description": "get the strings to pitch", "tags": ["guitar"],
+                                     "steps": [{"title": "Pluck", "do": "pluck each string against the tuner"}]}))
+    _payload(_mcp("playbook_write", {"op": "create", "id": "play-gig", "title": "Play a gig",
+                                     "description": "run a live set", "tags": ["live"],
+                                     "steps": [{"title": "Tune", "do": "tune first", "procedure": "tune-guitar"}]}))
+    opened = _payload(_mcp("playbook_open", {"id": "play-gig"}))
+    assert "tune-guitar" in json.dumps(opened)
+
+    hits = _payload(_mcp("playbook_search", {"query": "tune guitar strings"}))["hits"]
+    assert next(h for h in hits if h["id"] == "tune-guitar")["gravity"] == 1
+
+    up = _payload(_mcp("playbook_open", {"id": "tune-guitar", "upstream": True}))
+    assert up["orphan"] is False and up["roots"] == ["play-gig"]
+    assert _payload(_mcp("playbook_open", {"id": "play-gig", "upstream": True}))["orphan"] is True
+
+    loop = _mcp("playbook_write", {"op": "edit", "id": "tune-guitar", "step": "Pluck", "procedure": "play-gig"})
+    assert loop["isError"] is True
+    missing = _mcp("playbook_write", {"op": "append", "id": "play-gig",
+                                      "steps": [{"title": "Encore", "do": "x", "procedure": "no-such-thing"}]})
+    assert missing["isError"] is True
+    assert _mcp("playbook_open", {"id": "play-gig", "upstream": True, "full": False})["isError"] is True
+
+
+def test_legacy_widgets_field_still_loads_and_is_dropped(tmp_path: Path, monkeypatch) -> None:
+    """Procedures the Mizpah engine wrote with `widgets` still open; the next write leaves the field out."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    _payload(_mcp("playbook_write", {"op": "create", "id": "old-one", "title": "Old one", "description": "d",
+                                     "tags": ["legacy"], "steps": [{"title": "A", "do": "a"}]}))
+    path = procedure_path("old-one")
+    doc = json.loads(path.read_text())
+    doc["widgets"] = ["data-something-python"]
+    path.write_text(json.dumps(doc))
+    assert "widgets" not in _payload(_mcp("playbook_open", {"id": "old-one"}))
+    _payload(_mcp("playbook_write", {"op": "append", "id": "old-one", "steps": [{"title": "B", "do": "b"}]}))
+    assert "widgets" not in json.loads(path.read_text())

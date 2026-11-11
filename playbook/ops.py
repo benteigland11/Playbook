@@ -402,6 +402,8 @@ def load_procedure(procedure_id: str, full: bool = True) -> dict[str, Any]:
         entry: dict[str, Any] = {"title": step["title"]}
         if full:
             entry["do"] = step.get("do")
+        if step.get("procedure"):
+            entry["procedure"] = step["procedure"]
         listing.append(entry)
     return {
         "ok": True,
@@ -449,6 +451,7 @@ def start_procedure(procedure_id: str, title: str | None = None, step: int | Non
         "at": current.get("title"),
         "position": f"{index + 1}/{len(steps)}",
         "do": current.get("do"),
+        **({"procedure": current["procedure"]} if current.get("procedure") else {}),
         "prev": previous.get("title") if isinstance(previous, dict) else None,
         "next": following.get("title") if isinstance(following, dict) else None,
         # The exact command for the next step, to copy rather than recall.
@@ -506,11 +509,10 @@ def edit_meta(
     title: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
-    widgets: list[str] | None = None,
 ) -> dict[str, Any]:
     target = store.procedure_path(procedure_id)
     document = read_document(target)
-    updated = widget.edit_procedure(document, title=title, description=description, tags=tags, widgets=widgets)
+    updated = widget.edit_procedure(document, title=title, description=description, tags=tags)
     write_document(target, updated)
     library.touch([procedure_id], "edit")
     return {
@@ -519,21 +521,7 @@ def edit_meta(
         "title": updated["title"],
         "description": updated["description"],
         "tags": updated["tags"],
-        "widgets": updated.get("widgets", []),
     }
-
-
-def walk_widgets(procedure_id: str) -> list[str]:
-    """The widgets a method calls, across the procedures its walk inlines: what is installed before the walk."""
-    out: list[str] = []
-    for pid in [procedure_id] + sorted({e["source"] for e in expand(procedure_id)} - {procedure_id}):
-        try:
-            for w in read_document(store.procedure_path(pid)).get("widgets") or []:
-                if w not in out:
-                    out.append(str(w))
-        except (OSError, ValueError):
-            continue
-    return out
 
 
 def add_step(procedure_id: str, title: str, do: str, after: str | None = None,
@@ -642,7 +630,12 @@ def delete_procedure(procedure_id: str) -> dict[str, Any]:
 def read_document(path: str | Path) -> dict[str, Any]:
     target = Path(path)
     text = target.read_text(encoding="utf-8")
-    return widget.parse_procedure(text)
+    document = widget.parse_procedure(text)
+    # Procedures written by the Mizpah engine carried a `widgets` field; Playbook no longer has one.
+    # Drop it on read so those files still load, and the next write leaves it out.
+    if isinstance(document, dict):
+        document.pop("widgets", None)
+    return document
 
 
 def write_document(path: str | Path, document: Mapping[str, Any]) -> None:
@@ -971,7 +964,7 @@ def reach(procedure_id: str) -> dict[str, Any]:
         start = _cut(entries, start, FLAT_LIMIT)
         walks += 1
     return {"ok": True, "id": procedure_id, "steps": len(entries), "procedures": by_source,
-            "walks": max(1, walks), "limit": FLAT_LIMIT, "widgets": walk_widgets(procedure_id), "gravity": gravity(procedure_id)}
+            "walks": max(1, walks), "limit": FLAT_LIMIT, "gravity": gravity(procedure_id)}
 
 
 def _cut(entries: list[dict[str, Any]], start: int, limit: int) -> int:
@@ -1078,10 +1071,6 @@ def open_procedure(procedure_id: str, purpose: str, target_dir: str | Path = "."
         chosen = entries[start:end]
         remaining = entries[end:]
         library.touch(sorted({e["source"] for e in chosen}), "use")
-        used = walk_widgets(procedure_id)
-        if used:
-            lines += ["widgets: " + ", ".join(f"`{w}`" for w in used) + " — the instruments this method calls, installed under cg/ "
-                      "before the walk; a step that says to install one is done when `cartograph validate cg/<dir>` passes.", ""]
         lines += [_GUIDANCE, "", f"flat: steps {start + 1}–{start + len(chosen)} of {len(entries)} through "
                   f"{len({e['source'] for e in entries})} procedure(s); a step's source is named under it.", ""]
         for i, e in enumerate(chosen, 1):

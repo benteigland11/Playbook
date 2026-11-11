@@ -9,7 +9,7 @@ from json import JSONDecodeError, dumps, loads
 from typing import Any, Mapping
 from uuid import uuid4
 
-DOCUMENT_KEYS = frozenset({"id", "title", "description", "tags", "steps", "widgets"})
+DOCUMENT_KEYS = frozenset({"id", "title", "description", "tags", "steps"})
 STEP_KEYS = frozenset({"id", "title", "do", "procedure"})
 
 
@@ -94,10 +94,6 @@ def validate_procedure(document: Mapping[str, Any]) -> ValidationResult:
     elif not isinstance(title, str) or not title.strip():
         errors.append(Issue("$.title", "expected non-empty string"))
 
-    widgets = document.get("widgets", [])
-    if not isinstance(widgets, list) or any(not isinstance(w, str) or not w.strip() for w in widgets):
-        errors.append(Issue("$.widgets", "expected a list of widget ids (strings)"))
-
     description = document.get("description")
     if "description" not in document:
         errors.append(Issue("$.description", "missing required field"))
@@ -128,12 +124,10 @@ def edit_procedure(
     title: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
-    widgets: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return a copy with title, description, tags and/or widgets replaced. Id is unchanged. `widgets` are the
-    instruments the method calls (widget ids): installed before the walk, so no step is "install X"."""
-    if title is None and description is None and tags is None and widgets is None:
-        raise ValueError("edit requires title, description, tags and/or widgets")
+    """Return a copy with title, description and/or tags replaced. Id is unchanged."""
+    if title is None and description is None and tags is None:
+        raise ValueError("edit requires title, description and/or tags")
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise ValueError("title must be a non-empty string")
     if description is not None and (not isinstance(description, str) or not description.strip()):
@@ -145,8 +139,6 @@ def edit_procedure(
         updated["description"] = description.strip()
     if tags is not None:
         updated["tags"] = _clean_tags(tags)
-    if widgets is not None:
-        updated["widgets"] = sorted({str(w).strip() for w in widgets if str(w).strip()})
     result = validate_procedure(updated)
     if not result.valid:
         raise ValueError(_format_errors(result))

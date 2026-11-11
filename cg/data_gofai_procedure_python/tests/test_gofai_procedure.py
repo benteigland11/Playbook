@@ -162,7 +162,7 @@ def test_edit_procedure_updates_metadata() -> None:
 
 
 def test_edit_procedure_requires_a_change() -> None:
-    with pytest.raises(ValueError, match="title, description, tags and/or widgets"):
+    with pytest.raises(ValueError, match="title, description and/or tags"):
         edit_procedure(new_procedure("item", TITLE, DESC, TAGS))
 
 

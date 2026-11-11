@@ -12,7 +12,6 @@ diverged: a link that leads back to the linking procedure (through any chain) is
 diverged: `open` is flat by default — the procedure and everything it links as one straight list of at most 50 steps (each step names its source; cut at a boundary; `--from N` opens the next walk; `--nested` keeps the older shape); `reach` measures a method through its links; `edit-step/add-step/remove-step --walk FILE --step N` write through to the source procedure
 diverged: a flat walk shows the text of the step the worker is on and the two after it; the rest open as steps are ticked (tick re-renders and returns the next step); tick closes at most six steps a call
 diverged: a walk shows every step; before any tick the worker writes <walk>.plan.md (actions naming the steps they cover; steps that do not apply with why) and tick refuses a step the plan does not place
-diverged: procedures carry a `widgets` field (the instruments the method calls; `edit --widgets`), listed at the top of a walk and in `reach`
 diverged: the walk names its plan file's exact path (plan: …) and tick takes x.plan.md or x.md.plan.md
 diverged: `create` refuses a twin (id/title share three skill stems with a procedure in the store), naming the one to improve
 diverged: `playbook upstream <id>` — the chains of procedures that link down to this one, root first (how far up the waterfall it sits); `orphan` when nothing links it

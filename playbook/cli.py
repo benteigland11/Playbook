@@ -69,7 +69,6 @@ def _build_parser() -> argparse.ArgumentParser:
     edit.add_argument("--title", default="", help="new procedure title")
     edit.add_argument("--description", default="", help="new when-to-pick text (can be verbose)")
     edit.add_argument("--tags", default="", help="replacement comma-separated tags")
-    edit.add_argument("--widgets", default=None, help="replacement comma-separated widget ids the method calls (installed before a walk); '' clears")
     edit.set_defaults(handler=_cmd_edit)
 
     search = sub.add_parser("search", help="BM25 + char n-gram search over id, tags, description, and step titles")
@@ -236,10 +235,9 @@ def _cmd_edit(args: argparse.Namespace) -> dict[str, Any]:
     title = args.title.strip() or None
     description = args.description.strip() or None
     tags = _csv(args.tags) or None
-    widgets = None if args.widgets is None else _csv(args.widgets)
-    if title is None and description is None and tags is None and widgets is None:
-        raise ValueError("edit requires --title, --description, --tags and/or --widgets")
-    return ops.edit_meta(args.id, title=title, description=description, tags=tags, widgets=widgets)
+    if title is None and description is None and tags is None:
+        raise ValueError("edit requires --title, --description and/or --tags")
+    return ops.edit_meta(args.id, title=title, description=description, tags=tags)
 
 
 def _cmd_search(args: argparse.Namespace) -> dict[str, Any]:

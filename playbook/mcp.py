@@ -73,7 +73,7 @@ def _tool_list() -> list[dict[str, Any]]:
     return [
         {
             "name": "playbook_search",
-            "description": "Search procedures by intent. Hits are id, title, and description only; weak matches are dropped. If nothing matches strongly, the nearest few come back with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards.",
+            "description": "Search procedures by intent. Hits are id, title, description, and gravity: how many procedures run this one through their linked steps (0 is a leaf nobody links). A word search tends to land on leaves; when a hit has gravity 0 and the job is general, open it with upstream=true to find the method above it. Weak matches are dropped. If nothing matches strongly, the nearest few come back with weak=true — read those descriptions before concluding no procedure covers the job. Empty query lists cards.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -92,13 +92,14 @@ def _tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "playbook_open",
-            "description": "Read a procedure whole: title, description, and every step with its do. This is how you follow one — never call once per step. full=false gives titles only, to check whether this is the right procedure; at=\"step title\" re-reads one step. A malformed procedure fails here with every schema error, so there is no separate validate.",
+            "description": "Read a procedure whole: title, description, and every step with its do. This is how you follow one — never call once per step. full=false gives titles only, to check whether this is the right procedure; at=\"step title\" re-reads one step. A step that names a procedure runs that procedure: open it too. upstream=true instead returns the chains of procedures that link down to this one, root first (orphan when none does). A malformed procedure fails here with every schema error, so there is no separate validate.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
                     "at": {"type": "string", "description": "Re-read one step by title. Omit for the whole procedure."},
                     "full": {"type": "boolean", "description": "Default true. False gives titles only."},
+                    "upstream": {"type": "boolean", "description": "True returns the procedures that link down to this one instead of its steps."},
                 },
                 "required": ["id"],
             },
@@ -110,7 +111,10 @@ def _tool_list() -> list[dict[str, Any]]:
                 "on its own — a tool that already exists, a constraint that is costly to violate, "
                 "an ordering that matters for a non-obvious reason. Steps a competent model would "
                 "work out from the goal do not belong. create: a whole new procedure in one call. "
-                "append: add steps. edit / remove: one step. meta: retitle or retag."
+                "append: add steps. edit / remove: one step. meta: retitle or retag. "
+                "A step with `procedure` set runs that procedure instead of repeating it: link the "
+                "narrower method rather than copying its steps. Links to a missing procedure, to "
+                "itself, or that loop back are refused."
             ),
             "inputSchema": {
                 "type": "object",
@@ -125,13 +129,18 @@ def _tool_list() -> list[dict[str, Any]]:
                         "description": "On create/append: the steps, in order. All at once.",
                         "items": {
                             "type": "object",
-                            "properties": {"title": {"type": "string"}, "do": {"type": "string"}},
+                            "properties": {
+                                "title": {"type": "string"},
+                                "do": {"type": "string"},
+                                "procedure": {"type": "string", "description": "Optional: id of a procedure this step runs."},
+                            },
                             "required": ["title", "do"],
                         },
                     },
                     "step": {"type": "string", "description": "On edit/remove: the step's unique title."},
                     "do": {"type": "string", "description": "On edit: the step's new body."},
                     "rename": {"type": "string", "description": "On edit: the step's new title."},
+                    "procedure": {"type": "string", "description": "On edit: link the step to this procedure id."},
                     "after": {"type": "string", "description": "On append: insert after this step title. Omit for the end."},
                 },
                 "required": ["id", "op"],
@@ -183,6 +192,14 @@ def _tool_open(arguments: dict[str, Any]) -> dict[str, Any]:
         full = True
     if full is not True and full is not False:
         raise ValueError("full must be a boolean")
+    upstream = arguments.get("upstream")
+    if upstream is not None and upstream is not True and upstream is not False:
+        raise ValueError("upstream must be a boolean")
+    if upstream:
+        if at not in (None, "") or arguments.get("full") is not None:
+            raise ValueError("upstream stands alone: drop at and full")
+        ops.load_procedure(procedure_id, full=False)
+        return ops.upstream(procedure_id)
     if at not in (None, "") and arguments.get("full") is not None:
         raise ValueError("set at or full, not both")
     if at is None or at == "":
@@ -220,11 +237,13 @@ def _tool_write(arguments: dict[str, Any]) -> dict[str, Any]:
     if op == "edit":
         rename = arguments.get("rename")
         do = arguments.get("do")
+        linked = arguments.get("procedure")
         return ops.edit_step(
             procedure_id,
             _require_str(arguments, "step"),
             new_title=str(rename) if rename else None,
             do=str(do) if do else None,
+            procedure=str(linked) if linked else None,
         )
 
     if op == "remove":
