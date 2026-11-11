@@ -53,6 +53,34 @@ One JSON file per procedure, in the platform data dir:
 
 Honor `XDG_DATA_HOME` / `APPDATA` / `LOCALAPPDATA`. Commands take a procedure **id**, not a path.
 
+## Pointing the store somewhere else
+
+The files stay a plain directory. Sync is a separate layer (git, Syncthing, anything else that copies a folder). Point Playbook at that folder; it does not sync on its own.
+
+The CLI and `playbook mcp` use one resolver. Nothing is set means the platform directory above, exactly. Precedence:
+
+1. `PLAYBOOK_STORE` (environment variable), when it is non-blank
+2. `store` in the config file, when the file exists and sets it
+3. the platform default
+
+There is no CLI flag. A flag on one command would not match a server started as `playbook mcp`.
+
+The value is the directory that holds the procedure JSON files (the same directory the default `.../procedures` path is). `~` and environment variables are expanded, so `~/notes/procedures`, `$HOME/notes/procedures`, and `${PLAYBOOK_ROOT}/procedures` all work. A relative path is relative to the process working directory, so prefer `~` or an absolute path in the config file. A blank value is ignored and the next source is used. The directory is created on the first write if it is missing, and looking up the path does not create it.
+
+Config file (JSON, one key). Playbook does not create this file.
+
+| OS | File |
+| --- | --- |
+| Linux | `~/.config/playbook/config.json` (`XDG_CONFIG_HOME`) |
+| macOS | `~/Library/Application Support/playbook/config.json` |
+| Windows | `%APPDATA%\playbook\config.json` |
+
+```json
+{
+  "store": "~/notes/procedures"
+}
+```
+
 ## Shape
 
 ```json
