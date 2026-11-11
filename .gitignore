@@ -14,3 +14,4 @@ venv/
 .dep_cache.json
 .validation_stamp.json
 procedures/
+.playbook/

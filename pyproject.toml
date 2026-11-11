@@ -30,12 +30,13 @@ playbook = "playbook.cli:main"
 dev = ["pytest"]
 
 [tool.setuptools]
-packages = ["playbook", "playbook.engine", "playbook.app_paths", "playbook.bm25_ngram"]
+packages = ["playbook", "playbook.engine", "playbook.app_paths", "playbook.bm25_ngram", "playbook.usage_decay_ledger"]
 
 [tool.setuptools.package-dir]
 "playbook.engine" = "cg/data_gofai_procedure_python/src"
 "playbook.app_paths" = "cg/infra_app_paths_python/src"
 "playbook.bm25_ngram" = "cg/universal_bm25_ngram_python/src"
+"playbook.usage_decay_ledger" = "cg/infra_usage_decay_ledger_python/src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

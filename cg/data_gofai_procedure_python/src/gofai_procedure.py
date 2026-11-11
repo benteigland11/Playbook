@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from dataclasses import dataclass
 from json import JSONDecodeError, dumps, loads
 from typing import Any, Mapping
 from uuid import uuid4
 
-DOCUMENT_KEYS = frozenset({"id", "title", "description", "tags", "steps"})
-STEP_KEYS = frozenset({"id", "title", "do"})
+DOCUMENT_KEYS = frozenset({"id", "title", "description", "tags", "steps", "widgets"})
+STEP_KEYS = frozenset({"id", "title", "do", "procedure"})
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,10 @@ def validate_procedure(document: Mapping[str, Any]) -> ValidationResult:
     elif not isinstance(title, str) or not title.strip():
         errors.append(Issue("$.title", "expected non-empty string"))
 
+    widgets = document.get("widgets", [])
+    if not isinstance(widgets, list) or any(not isinstance(w, str) or not w.strip() for w in widgets):
+        errors.append(Issue("$.widgets", "expected a list of widget ids (strings)"))
+
     description = document.get("description")
     if "description" not in document:
         errors.append(Issue("$.description", "missing required field"))
@@ -123,10 +128,12 @@ def edit_procedure(
     title: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
+    widgets: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return a copy with title, description, and/or tags replaced. Id is unchanged."""
-    if title is None and description is None and tags is None:
-        raise ValueError("edit requires title, description, and/or tags")
+    """Return a copy with title, description, tags and/or widgets replaced. Id is unchanged. `widgets` are the
+    instruments the method calls (widget ids): installed before the walk, so no step is "install X"."""
+    if title is None and description is None and tags is None and widgets is None:
+        raise ValueError("edit requires title, description, tags and/or widgets")
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise ValueError("title must be a non-empty string")
     if description is not None and (not isinstance(description, str) or not description.strip()):
@@ -138,6 +145,8 @@ def edit_procedure(
         updated["description"] = description.strip()
     if tags is not None:
         updated["tags"] = _clean_tags(tags)
+    if widgets is not None:
+        updated["widgets"] = sorted({str(w).strip() for w in widgets if str(w).strip()})
     result = validate_procedure(updated)
     if not result.valid:
         raise ValueError(_format_errors(result))
@@ -150,8 +159,11 @@ def add_step(
     do: str,
     step_id: str | None = None,
     after: str | None = None,
+    procedure: str | None = None,
 ) -> dict[str, Any]:
-    """Return a copy with one step inserted after `after`, or appended if `after` is omitted."""
+    """Return a copy with one step inserted after `after`, or appended if `after` is omitted.
+
+    `procedure` links another procedure: the step is walked by opening that one."""
     if not isinstance(title, str) or not title.strip():
         raise ValueError("title must be a non-empty string")
     if not isinstance(do, str) or not do.strip():
@@ -169,6 +181,8 @@ def add_step(
     }
     assigned = _assign_step_id(step_id, taken)
     new_step = {"id": assigned, "title": title.strip(), "do": do.strip()}
+    if procedure is not None:
+        new_step["procedure"] = procedure.strip()
     if after is None:
         steps.append(new_step)
     else:
@@ -184,12 +198,13 @@ def edit_step(
     title: str,
     new_title: str | None = None,
     do: str | None = None,
+    procedure: str | None = None,
 ) -> dict[str, Any]:
-    """Return a copy with one step's title and/or do changed. Id is unchanged."""
+    """Return a copy with one step's title, do and/or linked procedure changed ('' unlinks). Id is unchanged."""
     if not isinstance(title, str) or not title.strip():
         raise ValueError("title must be a non-empty string")
-    if new_title is None and do is None:
-        raise ValueError("edit requires new_title and/or do")
+    if new_title is None and do is None and procedure is None:
+        raise ValueError("edit requires new_title, do and/or procedure")
     if new_title is not None and (not isinstance(new_title, str) or not new_title.strip()):
         raise ValueError("new_title must be a non-empty string")
     if do is not None and (not isinstance(do, str) or not do.strip()):
@@ -205,6 +220,11 @@ def edit_step(
         step["title"] = new_title.strip()
     if do is not None:
         step["do"] = do.strip()
+    if procedure is not None:
+        if procedure.strip():
+            step["procedure"] = procedure.strip()
+        else:
+            step.pop("procedure", None)
     steps[index] = step
     result = validate_procedure(updated)
     if not result.valid:
@@ -276,6 +296,10 @@ def _validate_step(step: Any, path: str, seen_titles: set[str], seen_ids: set[st
         errors.append(Issue(f"{path}.do", "missing required field"))
     elif not isinstance(body, str) or not body.strip():
         errors.append(Issue(f"{path}.do", "expected non-empty string"))
+    # A step may link another procedure: following this step means opening that one and walking it.
+    linked = step.get("procedure")
+    if "procedure" in step and (not isinstance(linked, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", linked)):
+        errors.append(Issue(f"{path}.procedure", "expected a procedure id"))
     return errors
 
 

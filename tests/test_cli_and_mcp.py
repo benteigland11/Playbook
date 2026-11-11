@@ -12,7 +12,7 @@ from playbook.store import procedure_path
 
 def test_cli_create_add_validate(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    assert main(["create", "--unsearched", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
     path = procedure_path("item")
     assert main(["add-step", "item", "--title", "Ask for mode", "--do", "Set mode to draft or final."]) == 0
     assert main(["validate", "item"]) == 0
@@ -43,7 +43,7 @@ def test_cli_create_add_validate(tmp_path: Path, monkeypatch) -> None:
 
 def test_cli_load_and_start(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    assert main(["create", "--unsearched", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
     assert main(["add-step", "item", "--title", "First", "--do", "Do first."]) == 0
     assert main(["add-step", "item", "--title", "Second", "--do", "Do second."]) == 0
     assert main(["add-step", "item", "--title", "Third", "--do", "Do third."]) == 0
@@ -105,8 +105,8 @@ def test_cli_errors_are_json(tmp_path: Path, monkeypatch, capsys: pytest.Capture
 
 def test_cli_search(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "cli-to-mcp", "--title", "CLI to MCP", "--description", "verbose JSON CLI into condensed MCP", "--tags", "cli,mcp"]) == 0
-    assert main(["create", "other", "--title", "Cooking notes", "--description", "unrelated cooking notes", "--tags", "food"]) == 0
+    assert main(["create", "--unsearched", "cli-to-mcp", "--title", "CLI to MCP", "--description", "verbose JSON CLI into condensed MCP", "--tags", "cli,mcp"]) == 0
+    assert main(["create", "--unsearched", "other", "--title", "Cooking notes", "--description", "unrelated cooking notes", "--tags", "food"]) == 0
     capsys.readouterr()
     assert main(["search", "mcp"]) == 0
     ranked = json.loads(capsys.readouterr().out)
@@ -186,7 +186,7 @@ def test_mcp_create_and_list_tools(tmp_path: Path, monkeypatch) -> None:
 
 def test_mcp_open_returns_whole_procedure_by_default(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    assert main(["create", "--unsearched", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
     assert main(["add-step", "item", "--title", "First", "--do", "Do first."]) == 0
     assert main(["add-step", "item", "--title", "Second", "--do", "Do second."]) == 0
 
@@ -221,7 +221,7 @@ def test_mcp_open_returns_whole_procedure_by_default(tmp_path: Path, monkeypatch
 
 def test_mcp_payloads_are_compact(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
+    assert main(["create", "--unsearched", "item", "--title", "Item", "--description", "choose a mode", "--tags", "alpha"]) == 0
     response = handle_message(
         {
             "jsonrpc": "2.0",
@@ -247,7 +247,7 @@ def test_create_with_steps_in_one_call(tmp_path: Path, monkeypatch, capsys: pyte
         ]
     )
     assert main(
-        ["create", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha", "--steps", steps]
+        ["create", "--unsearched", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha", "--steps", steps]
     ) == 0
     created = json.loads(capsys.readouterr().out)
     assert created["steps"] == 3
@@ -275,7 +275,7 @@ def test_create_with_steps_in_one_call(tmp_path: Path, monkeypatch, capsys: pyte
 
 def test_batch_add_is_atomic(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert main(["create", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha"]) == 0
+    assert main(["create", "--unsearched", "item", "--title", "Item", "--description", "when to pick", "--tags", "alpha"]) == 0
     assert main(["add-step", "item", "--title", "Kept", "--do", "Keep this."]) == 0
     bad = json.dumps([{"title": "Good", "do": "Fine."}, {"title": "Bad", "do": ""}])
     assert main(["add-steps", "item", "--steps", bad]) == 1
@@ -348,7 +348,7 @@ def test_search_falls_back_to_weak_matches(tmp_path: Path, monkeypatch, capsys: 
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert main(
         [
-            "create", "rollback-deploy",
+            "create", "--unsearched", "rollback-deploy",
             "--title", "Roll back a bad deploy",
             "--description", "Use when a release is live and breaking users and you need the previous version back.",
             "--tags", "deploy,rollback,release",
