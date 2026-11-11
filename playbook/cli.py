@@ -209,7 +209,17 @@ def _build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--protect", action="append", default=None, metavar="PREFIX")
     pl.set_defaults(handler=lambda a: library.set_policy(enabled=a.enabled, grace=a.grace, protect=a.protect))
 
+    mcp = sub.add_parser("mcp", help="run the MCP server on stdio")
+    mcp.set_defaults(handler=_cmd_mcp)
+
     return parser
+
+
+def _cmd_mcp(_args: argparse.Namespace) -> None:
+    from playbook.mcp import serve
+
+    serve()
+    return None
 
 
 def _cmd_library_touch(args: argparse.Namespace) -> dict[str, Any]:

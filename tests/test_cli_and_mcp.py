@@ -468,3 +468,13 @@ def test_legacy_widgets_field_still_loads_and_is_dropped(tmp_path: Path, monkeyp
     assert "widgets" not in _payload(_mcp("playbook_open", {"id": "old-one"}))
     _payload(_mcp("playbook_write", {"op": "append", "id": "old-one", "steps": [{"title": "B", "do": "b"}]}))
     assert "widgets" not in json.loads(path.read_text())
+
+
+def test_cli_mcp_subcommand_serves_stdio(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Hosts launch the server as `playbook mcp`; the subcommand has to exist."""
+    import io
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"))
+    assert main(["mcp"]) == 0
+    reply = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert [t["name"] for t in reply["result"]["tools"]] == ["playbook_search", "playbook_open", "playbook_write"]
