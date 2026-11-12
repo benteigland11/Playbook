@@ -127,6 +127,52 @@ def test_redactor_strips_tokens_and_caps_at_200_chars() -> None:
     assert len(usage.redact(long_text)) == 200
 
 
+def test_redactor_covers_more_secret_key_names() -> None:
+    cases = {
+        "secret=abc123 next": "secret=[redacted] next",
+        "api_key=abc123": "api_key=[redacted]",
+        "apikey=abc123": "apikey=[redacted]",
+        "api-key=abc123": "api-key=[redacted]",
+        "key=abc123": "key=[redacted]",
+        "client_secret=abc123": "client_secret=[redacted]",
+        "GITHUB_TOKEN=abc123": "GITHUB_TOKEN=[redacted]",
+        "access_key = abc123": "access_key=[redacted]",
+        "private_key=abc123": "private_key=[redacted]",
+        "db-password=abc123": "db-password=[redacted]",
+        "passwd=abc pwd=def": "passwd=[redacted] pwd=[redacted]",
+        "auth=abc123": "auth=[redacted]",
+        "credentials=abc123": "credentials=[redacted]",
+        "session=abc123": "session=[redacted]",
+        "cookie=abc123": "cookie=[redacted]",
+        "SECRET=abc123": "SECRET=[redacted]",
+    }
+    for raw, expected in cases.items():
+        assert usage.redact(raw) == expected, raw
+
+
+def test_redactor_removes_quoted_values_whole() -> None:
+    assert usage.redact('secret="two words" next') == "secret=[redacted] next"
+    assert usage.redact("api_key='a b c' next") == "api_key=[redacted] next"
+
+
+def test_redactor_strips_authorization_headers() -> None:
+    assert usage.redact("Authorization: Bearer abcdefgh1234") == (
+        "Authorization: Bearer [redacted]"
+    )
+    assert usage.redact("basic dXNlcjpwYXNz") == "basic [redacted]"
+
+
+def test_redactor_leaves_ordinary_text_alone() -> None:
+    for plain in (
+        "the key step is to restart the service",
+        "rotate the secret before deploy",
+        "set the token budget to a sane value",
+        "x=1 and mode=fast",
+        "basic setup for the project",
+    ):
+        assert usage.redact(plain) == plain
+
+
 def test_place_normalizes_git_origins_and_hides_home(
     isolated: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
