@@ -48,7 +48,18 @@ _TOKEN_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"xox[abpr]-[A-Za-z0-9\-]{8,}"),
     re.compile(r"AKIA[A-Z0-9]{16}"),
 )
-_ASSIGN_PATTERN = re.compile(r"(?i)\b(password|token)\s*=\s*\S+")
+# Key names whose value is treated as a secret in "name=value" text. The
+# name may carry a prefix, so client_secret=, GITHUB_TOKEN= and db-password=
+# all match. Quoted values are removed whole.
+_SECRET_KEY_NAMES = (
+    r"password|passwd|pwd|passphrase|secret|token|api[_-]?key|key"
+    r"|auth|credentials?|session|cookie"
+)
+_ASSIGN_PATTERN = re.compile(
+    r"(?i)(?<![A-Za-z0-9])([A-Za-z0-9_.-]*(?:" + _SECRET_KEY_NAMES + r"))"
+    r"\s*=\s*(?:\"[^\"]*\"|'[^']*'|\S+)"
+)
+_BEARER_PATTERN = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 _HEX_PATTERN = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{32,}(?![A-Za-z0-9])")
 _B64_PATTERN = re.compile(
     r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{40,}={0,2}(?![A-Za-z0-9+/_-])"
@@ -101,6 +112,7 @@ def redact(text: str, limit: int = TEXT_CAP) -> str:
         return f"{match.group(1)}=[redacted]"
 
     cleaned = _ASSIGN_PATTERN.sub(_assign, cleaned)
+    cleaned = _BEARER_PATTERN.sub(lambda m: f"{m.group(1)} [redacted]", cleaned)
     cleaned = _HEX_PATTERN.sub("[redacted]", cleaned)
     cleaned = _B64_PATTERN.sub("[redacted]", cleaned)
     if len(cleaned) > limit:
